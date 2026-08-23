@@ -152,6 +152,68 @@
         </form>
       </div>
 
+      <!-- Workbench View -->
+      <div x-show="$store.stu.activeView === 'workbench'" class="view-container" x-cloak>
+        <header class="pane-header">
+          <button type="button" class="icon-button mobile-nav-toggle" @click="$store.stu.openMobileNav()" aria-label="Open navigation">≡</button>
+          <div class="pane-title">
+            <h1>Workbench</h1>
+            <p class="pane-subtitle">Agentic control loop and execution status.</p>
+          </div>
+        </header>
+
+        <div class="workbench-container">
+          <template x-if="!$store.stu.workbench.state || $store.stu.workbench.state.status === 'idle'">
+            <div class="card card--primary">
+              <h3>Start a new execution</h3>
+              <input type="text" x-model="$store.stu.workbench.goal" placeholder="Enter a goal for the agent...">
+              <button class="btn btn--primary" @click="$store.stu.startExecution()" :disabled="$store.stu.workbench.loading || !$store.stu.workbench.goal">
+                Start Loop
+              </button>
+            </div>
+          </template>
+
+          <template x-if="$store.stu.workbench.state && $store.stu.workbench.state.status !== 'idle'">
+            <div class="card" :class="{
+              'card--primary': $store.stu.workbench.state.status === 'running',
+              'card--warning': $store.stu.workbench.state.status === 'waiting_for_human',
+              'card--safe': $store.stu.workbench.state.status === 'completed',
+              'card--error': $store.stu.workbench.state.status === 'failed'
+            }">
+              <header class="card-header">
+                <h3 x-text="'Loop: ' + $store.stu.workbench.state.loop_id.substring(0, 8)"></h3>
+                <span class="card-badge" x-text="$store.stu.workbench.state.status"></span>
+              </header>
+              <p><strong>Goal:</strong> <span x-text="$store.stu.workbench.state.goal"></span></p>
+              <p><strong>Phase:</strong> <span x-text="$store.stu.workbench.state.current_phase"></span></p>
+              
+              <template x-if="$store.stu.workbench.state.error">
+                <p class="error-text" x-text="$store.stu.workbench.state.error"></p>
+              </template>
+
+              <template x-if="$store.stu.workbench.state.status === 'waiting_for_human'">
+                <div class="hitl-section">
+                  <h4>Proposed Plan</h4>
+                  <ul class="plan-list">
+                    <template x-for="step in $store.stu.workbench.state.plan" :key="step.id">
+                      <li x-text="step.description"></li>
+                    </template>
+                  </ul>
+                  <div class="hitl-actions">
+                    <button class="btn btn--primary" @click="$store.stu.approveExecution()">Approve</button>
+                    <button class="btn" @click="$store.stu.rejectExecution()">Reject</button>
+                  </div>
+                </div>
+              </template>
+
+              <template x-if="$store.stu.workbench.state.status === 'completed' || $store.stu.workbench.state.status === 'failed'">
+                <button class="btn" @click="$store.stu.workbench.state = null">Reset</button>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+
       <!-- Memory View -->
       <div x-show="$store.stu.activeView === 'memory'" class="view-container" x-cloak>
         <header class="pane-header">

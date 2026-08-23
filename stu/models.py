@@ -51,13 +51,17 @@ class MemoryEntry(BaseModel):
 
 
 class LoopState(BaseModel):
-    schema_version: int = 1
-    status: LoopStatus
-    phase: LoopPhase
+    loop_id: str
     project_id: str
-    iteration: int = 0
-    message: str | None = None
+    status: LoopStatus
+    current_phase: LoopPhase
+    goal: str
+    context: dict[str, Any] = Field(default_factory=dict)
+    plan: list[PlanStep] = Field(default_factory=list)
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+    error: str | None = None
 
 
 class ToolDescriptor(BaseModel):
@@ -244,3 +248,16 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     message: ChatMessage
     project_id: str
+
+
+class PlanStep(BaseModel):
+    id: str
+    description: str
+    tool_name: str | None = None
+    args: dict[str, Any] = Field(default_factory=dict)
+    status: str = "pending"
+    result: str | None = None
+
+
+class ExecutionStartRequest(BaseModel):
+    goal: str = Field(..., min_length=1)

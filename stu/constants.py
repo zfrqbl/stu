@@ -36,15 +36,13 @@ class LoopStatus(str, Enum):
     IDLE = "idle"
     RUNNING = "running"
     WAITING_FOR_HUMAN = "waiting_for_human"
-    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
 
 
 class LoopPhase(str, Enum):
-    IDLE = "idle"
     INTAKE = "intake"
-    ANALYZE = "analyze"
+    ORIENT = "orient"
     PLAN = "plan"
     APPROVE = "approve"
     EXECUTE = "execute"

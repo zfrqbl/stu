@@ -22,7 +22,9 @@ from .workspace import bootstrap_workspace
 from .projects.service import ProjectService
 from .memory.service import MemoryService
 from .chat.service import ChatService
-from .api import projects, memory, chat
+from .execution.state_manager import StateManager
+from .execution.orchestrator import Orchestrator
+from .api import projects, memory, chat, execution
 
 REQUIRED_STATIC_FILES = ("index.html", "styles.css", "app.js")
 
@@ -82,6 +84,8 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         project_service = ProjectService(manifest.root, config)
         memory_service = MemoryService(manifest.root, config, manifest.models)
         chat_service = ChatService(config, memory_service, llm_gateway)
+        state_manager = StateManager(manifest.runtime, config)
+        orchestrator = Orchestrator(state_manager, llm_gateway, memory_service)
 
         app.state.config = config
         app.state.secrets = secrets
@@ -91,6 +95,8 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         app.state.project_service = project_service
         app.state.memory_service = memory_service
         app.state.chat_service = chat_service
+        app.state.state_manager = state_manager
+        app.state.orchestrator = orchestrator
         app.state.workspace_ready = True
 
         logger.info("Project Stu API startup complete.")
@@ -120,6 +126,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
     app.include_router(projects.router, prefix=config.server.api_prefix)
     app.include_router(memory.router, prefix=config.server.api_prefix)
     app.include_router(chat.router, prefix=config.server.api_prefix)
+    app.include_router(execution.router, prefix=config.server.api_prefix)
 
     @app.get(build_api_path(config.server.api_prefix, "health"), response_model=HealthStatus)
     async def health() -> HealthStatus:

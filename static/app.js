@@ -135,6 +135,13 @@
         newEntry: { title: "", content: "", tagsStr: "" },
       },
 
+      workbench: {
+        goal: "",
+        loading: false,
+        state: null,
+        polling: null,
+      },
+
       init() {
         if (this.initialized) {
           return;
@@ -148,6 +155,9 @@
           }
           if (this.activeView === "chat") {
             this.fetchChatHistory();
+          }
+          if (this.activeView === "workbench") {
+            this.startWorkbenchPolling();
           }
         });
       },
@@ -256,11 +266,17 @@
         this.activeView = view;
         this.closeMobileNav();
         this.persist();
+
         if (view === "memory") {
           this.fetchMemories();
         }
         if (view === "chat") {
           this.fetchChatHistory();
+        }
+        if (view === "workbench") {
+          this.startWorkbenchPolling();
+        } else {
+          this.stopWorkbenchPolling();
         }
       },
 
@@ -380,6 +396,79 @@
           this.fetchMemories();
         } catch (e) {
           this.pushToast("Failed to delete memory.", "error");
+        }
+      },
+
+      // --- Workbench Methods ---
+
+      startWorkbenchPolling() {
+        this.stopWorkbenchPolling();
+        this.fetchWorkbenchStatus();
+        this.workbench.polling = setInterval(() => {
+          this.fetchWorkbenchStatus();
+        }, 2000);
+      },
+
+      stopWorkbenchPolling() {
+        if (this.workbench.polling) {
+          clearInterval(this.workbench.polling);
+          this.workbench.polling = null;
+        }
+      },
+
+      async fetchWorkbenchStatus() {
+        try {
+          const data = await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/execution/status`
+          );
+          this.workbench.state = data;
+        } catch {
+          // ignore
+        }
+      },
+
+      async startExecution() {
+        const goal = this.workbench.goal.trim();
+        if (!goal || this.workbench.loading) return;
+        this.workbench.loading = true;
+        try {
+          await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/execution/start`,
+            {
+              method: "POST",
+              body: JSON.stringify({ goal }),
+            }
+          );
+          this.workbench.goal = "";
+          this.fetchWorkbenchStatus();
+        } catch (e) {
+          this.pushToast("Failed to start execution.", "error");
+        } finally {
+          this.workbench.loading = false;
+        }
+      },
+
+      async approveExecution() {
+        try {
+          await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/execution/approve`,
+            { method: "POST" }
+          );
+          this.fetchWorkbenchStatus();
+        } catch (e) {
+          this.pushToast("Failed to approve execution.", "error");
+        }
+      },
+
+      async rejectExecution() {
+        try {
+          await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/execution/reject`,
+            { method: "POST" }
+          );
+          this.fetchWorkbenchStatus();
+        } catch (e) {
+          this.pushToast("Failed to reject execution.", "error");
         }
       },
     };
