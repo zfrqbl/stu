@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -179,9 +180,6 @@ class PublicConfig(BaseModel):
     llm_rate_limit: PublicRateLimit
 
 
-
-# ... [Keep all existing Milestone 1 models] ...
-
 class ProjectPaths(BaseModel):
     root: Path
     memory: Path
@@ -224,3 +222,25 @@ class MemoryReadResponse(BaseModel):
 class MemorySearchResult(BaseModel):
     memory: MemoryReadResponse
     score: float | None = None
+
+
+class ChatRole(str, Enum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class ChatMessage(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    role: ChatRole
+    content: str
+    timestamp: datetime = Field(default_factory=utc_now)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
+class ChatResponse(BaseModel):
+    message: ChatMessage
+    project_id: str

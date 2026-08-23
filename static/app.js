@@ -38,7 +38,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
     } catch {
-      // Ignore storage failures in private or sandboxed browsers.
+      // Ignore storage failures.
     }
   }
 
@@ -56,7 +56,6 @@
       throw new Error(`Request failed: ${response.status}`);
     }
 
-    // Handle 204 No Content for DELETE requests
     if (response.status === 204) {
       return null;
     }
@@ -123,14 +122,8 @@
 
       chat: {
         draft: "",
-        messages: [
-          {
-            id: "welcome",
-            role: "system",
-            content:
-              "Project Stu v3.0 shell online. Chat execution arrives after Milestone 3.",
-          },
-        ],
+        loading: false,
+        messages: [],
       },
 
       toasts: [],
@@ -150,9 +143,11 @@
         this.applyPreferences();
         this.fetchAll().then(() => {
           this.initialized = true;
-          // If the default view is memory, fetch memories immediately
           if (this.activeView === "memory") {
             this.fetchMemories();
+          }
+          if (this.activeView === "chat") {
+            this.fetchChatHistory();
           }
         });
       },
@@ -226,34 +221,16 @@
       },
 
       healthDotClass() {
-        if (!this.health) {
-          return "status-dot--error";
-        }
-
-        if (this.health.status === "ok") {
-          return "status-dot--safe";
-        }
-
-        if (this.health.status === "degraded") {
-          return "status-dot--warning";
-        }
-
+        if (!this.health) return "status-dot--error";
+        if (this.health.status === "ok") return "status-dot--safe";
+        if (this.health.status === "degraded") return "status-dot--warning";
         return "status-dot--error";
       },
 
       healthLabel() {
-        if (!this.health) {
-          return "Offline";
-        }
-
-        if (this.health.status === "ok") {
-          return "Healthy";
-        }
-
-        if (this.health.status === "degraded") {
-          return "Degraded";
-        }
-
+        if (!this.health) return "Offline";
+        if (this.health.status === "ok") return "Healthy";
+        if (this.health.status === "degraded") return "Degraded";
         return "Error";
       },
 
@@ -282,14 +259,64 @@
         if (view === "memory") {
           this.fetchMemories();
         }
+        if (view === "chat") {
+          this.fetchChatHistory();
+        }
       },
 
       canSend() {
-        return false;
+        return !this.chat.loading && this.chat.draft.trim().length > 0;
+      },
+
+      async fetchChatHistory() {
+        try {
+          const data = await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/chat/history`
+          );
+          this.chat.messages = data;
+        } catch {
+          this.chat.messages = [];
+        }
+      },
+
+      async sendChat() {
+        const message = this.chat.draft.trim();
+        if (!message || this.chat.loading) return;
+
+        this.chat.messages.push({
+          id: makeId(),
+          role: "user",
+          content: message,
+          timestamp: new Date().toISOString(),
+        });
+
+        this.chat.draft = "";
+        this.chat.loading = true;
+
+        try {
+          const data = await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/chat`,
+            {
+              method: "POST",
+              body: JSON.stringify({ message }),
+            }
+          );
+          this.chat.messages.push(data.message);
+        } catch (e) {
+          this.pushToast("Failed to get LLM response.", "error");
+          this.chat.messages.push({
+            id: makeId(),
+            role: "assistant",
+            content: "Error: Failed to generate response.",
+            timestamp: new Date().toISOString(),
+          });
+        } finally {
+          this.chat.loading = false;
+        }
       },
 
       sendDraft() {
-        this.pushToast("Chat execution lands in Milestone 3.", "warning");
+        this.sendChat();
       },
 
       pushToast(message, tone = "primary") {
@@ -301,13 +328,15 @@
         }, 5000);
       },
 
-      // --- Memory Methods ---
-
       async fetchMemories() {
         this.memory.loading = true;
         try {
-          const params = this.memory.searchQuery ? `?query=${encodeURIComponent(this.memory.searchQuery)}` : "";
-          const data = await fetchJson(`${this.apiPrefix}/projects/${this.currentProjectId}/memory${params}`);
+          const params = this.memory.searchQuery
+            ? `?query=${encodeURIComponent(this.memory.searchQuery)}`
+            : "";
+          const data = await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/memory${params}`
+          );
           this.memory.entries = data;
         } catch (e) {
           this.pushToast("Failed to load memories.", "error");
@@ -322,12 +351,15 @@
           this.pushToast("Title and content are required.", "warning");
           return;
         }
-        const tags = tagsStr.split(",").map(t => t.trim()).filter(t => t);
+        const tags = tagsStr.split(",").map((t) => t.trim()).filter((t) => t);
         try {
-          await fetchJson(`${this.apiPrefix}/projects/${this.currentProjectId}/memory`, {
-            method: "POST",
-            body: JSON.stringify({ title, content, tags })
-          });
+          await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/memory`,
+            {
+              method: "POST",
+              body: JSON.stringify({ title, content, tags }),
+            }
+          );
           this.showAddMemory = false;
           this.memory.newEntry = { title: "", content: "", tagsStr: "" };
           this.pushToast("Memory saved.", "safe");
@@ -340,7 +372,10 @@
       async deleteMemory(id) {
         if (!confirm("Delete this memory?")) return;
         try {
-          await fetchJson(`${this.apiPrefix}/projects/${this.currentProjectId}/memory/${id}`, { method: "DELETE" });
+          await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/memory/${id}`,
+            { method: "DELETE" }
+          );
           this.pushToast("Memory deleted.", "safe");
           this.fetchMemories();
         } catch (e) {

@@ -82,8 +82,8 @@
     "theme": "dark"
   },
   "llm": {
-    "provider": "local",
-    "model": "local-default",
+    "provider": "mock",
+    "model": "mock-default",
     "rate_limit": {
       "enabled": true,
       "min_interval_seconds": 2.0,
@@ -92,5 +92,9 @@
       "fail_on_timeout": false,
       "telemetry_events": true
     }
+  },
+  "chat": {
+    "history_limit": 50,
+    "system_prompt": "You are Stu, a helpful and concise AI assistant operating within Project Stu v3.0. You have access to project memory context. Answer clearly and directly."
   }
 }

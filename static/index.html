@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Project Stu v3.0</title>
 
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/static/styles.css">
 
-  <script src="/vendor/alpine.min.js" defer></script>
-  <script src="/app.js" defer></script>
+  <script src="/static/vendor/alpine.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
 </head>
 
 <body
@@ -100,32 +100,55 @@
       aria-hidden="true"
     ></div>
 
-        <main id="chat-pane" class="pane chat-pane" tabindex="-1">
+    <main id="chat-pane" class="pane chat-pane" tabindex="-1">
       <!-- Chat View -->
       <div x-show="$store.stu.activeView === 'chat'" class="view-container">
         <header class="pane-header">
           <button type="button" class="icon-button mobile-nav-toggle" @click="$store.stu.openMobileNav()" aria-label="Open navigation">≡</button>
           <div class="pane-title">
             <h1>Chat</h1>
-            <p class="pane-subtitle">Milestone 1 shell. Agentic execution arrives in Milestone 3.</p>
+            <p class="pane-subtitle">LLM Gateway active. Rate-limited and memory-aware.</p>
           </div>
           <div class="pane-actions">
             <span class="health-pill" :class="$store.stu.healthDotClass()" x-text="$store.stu.healthLabel()"></span>
             <button type="button" class="btn" @click="$store.stu.toggleTelemetry()">Telemetry</button>
           </div>
         </header>
+
         <section class="chat-messages" aria-live="polite">
+          <template x-if="$store.stu.chat.messages.length === 0">
+            <div class="card card--muted"><p>No messages yet. Send a message to start.</p></div>
+          </template>
           <template x-for="message in $store.stu.chat.messages" :key="message.id">
             <article class="chat-message" :class="`chat-message--${message.role}`">
               <span class="chat-role" x-text="message.role"></span>
               <p x-text="message.content"></p>
             </article>
           </template>
+          <template x-if="$store.stu.chat.loading">
+            <div class="chat-message chat-message--assistant">
+              <span class="chat-role">assistant</span>
+              <p class="typing-indicator">Thinking...</p>
+            </div>
+          </template>
         </section>
-        <form class="composer" @submit.prevent="$store.stu.sendDraft()">
+
+        <form class="composer" @submit.prevent="$store.stu.sendChat()">
           <label class="visually-hidden" for="composer-input">Message</label>
-          <textarea id="composer-input" x-model="$store.stu.chat.draft" placeholder="Chat backend is not connected yet." rows="3"></textarea>
-          <button type="submit" class="btn btn--primary" :disabled="!$store.stu.canSend()">Send</button>
+          <textarea
+            id="composer-input"
+            x-model="$store.stu.chat.draft"
+            placeholder="Type a message..."
+            rows="3"
+            :disabled="$store.stu.chat.loading"
+          ></textarea>
+          <button
+            type="submit"
+            class="btn btn--primary"
+            :disabled="!$store.stu.canSend()"
+          >
+            Send
+          </button>
         </form>
       </div>
 
@@ -147,7 +170,6 @@
           <button type="button" class="btn btn--primary" @click="$store.stu.showAddMemory = true">+ Add Memory</button>
         </div>
 
-        <!-- Add Memory Modal -->
         <div x-show="$store.stu.showAddMemory" class="modal-backdrop" @click.self="$store.stu.showAddMemory = false">
           <div class="modal-card">
             <h3>New Memory Entry</h3>
@@ -188,6 +210,7 @@
         </section>
       </div>
     </main>
+
     <aside class="pane telemetry-pane" aria-label="Telemetry">
       <header class="pane-header telemetry-header">
         <div class="pane-title">

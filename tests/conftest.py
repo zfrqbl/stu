@@ -25,6 +25,9 @@ def client(tmp_path):
     # Keep static assets pointing to the real frontend files.
     config_data["server"]["static_dir"] = str(PROJECT_ROOT / "static")
 
+    # Use a short rate limit delay for fast tests.
+    config_data["llm"]["rate_limit"]["min_interval_seconds"] = 0.01
+
     temp_config_path = tmp_path / "stu.json"
     temp_config_path.write_text(json.dumps(config_data, indent=2), encoding="utf-8")
 

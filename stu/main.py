@@ -15,12 +15,14 @@ from loguru import logger
 from .config import AppConfig, load_app_config, load_secrets
 from .constants import HealthStatusValue
 from .llm.rate_limiter import LLMRateLimiter
+from .llm.gateway import LLMGateway
 from .logging import setup_logging
 from .models import HealthStatus, PublicAppInfo, PublicConfig, PublicRateLimit, PublicUiConfig
 from .workspace import bootstrap_workspace
 from .projects.service import ProjectService
 from .memory.service import MemoryService
-from .api import projects, memory
+from .chat.service import ChatService
+from .api import projects, memory, chat
 
 REQUIRED_STATIC_FILES = ("index.html", "styles.css", "app.js")
 
@@ -76,15 +78,19 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         setup_logging(config, manifest.logs)
 
         rate_limiter = LLMRateLimiter(config.llm.rate_limit)
+        llm_gateway = LLMGateway(config.llm, rate_limiter)
         project_service = ProjectService(manifest.root, config)
         memory_service = MemoryService(manifest.root, config, manifest.models)
+        chat_service = ChatService(config, memory_service, llm_gateway)
 
         app.state.config = config
         app.state.secrets = secrets
         app.state.workspace = manifest
         app.state.rate_limiter = rate_limiter
+        app.state.llm_gateway = llm_gateway
         app.state.project_service = project_service
         app.state.memory_service = memory_service
+        app.state.chat_service = chat_service
         app.state.workspace_ready = True
 
         logger.info("Project Stu API startup complete.")
@@ -113,6 +119,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
 
     app.include_router(projects.router, prefix=config.server.api_prefix)
     app.include_router(memory.router, prefix=config.server.api_prefix)
+    app.include_router(chat.router, prefix=config.server.api_prefix)
 
     @app.get(build_api_path(config.server.api_prefix, "health"), response_model=HealthStatus)
     async def health() -> HealthStatus:

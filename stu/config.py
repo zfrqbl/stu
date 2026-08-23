@@ -38,14 +38,17 @@ class ServerConfig(StrictModel):
     @field_validator("api_prefix")
     @classmethod
     def validate_api_prefix(cls, value: str) -> str:
-        if not value.startswith("/"): raise ValueError("api_prefix must start with /")
-        if value == "/": raise ValueError("api_prefix must not be /")
+        if not value.startswith("/"):
+            raise ValueError("api_prefix must start with /")
+        if value == "/":
+            raise ValueError("api_prefix must not be /")
         return value.rstrip("/")
 
     @field_validator("static_mount_path")
     @classmethod
     def validate_static_mount_path(cls, value: str) -> str:
-        if not value.startswith("/"): raise ValueError("static_mount_path must start with /")
+        if not value.startswith("/"):
+            raise ValueError("static_mount_path must start with /")
         normalized = value.rstrip("/")
         return normalized if normalized else "/"
 
@@ -135,7 +138,8 @@ class UiConfig(StrictModel):
     @classmethod
     def validate_theme(cls, value: str) -> str:
         allowed = {"dark", "light", "system"}
-        if value not in allowed: raise ValueError("theme must be one of: dark, light, system")
+        if value not in allowed:
+            raise ValueError("theme must be one of: dark, light, system")
         return value
 
 
@@ -153,6 +157,19 @@ class LlmConfig(StrictModel):
     model: str
     rate_limit: LlmRateLimitConfig
 
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, value: str) -> str:
+        allowed = {"mock", "aisuite"}
+        if value not in allowed:
+            raise ValueError(f"provider must be one of: {', '.join(sorted(allowed))}")
+        return value
+
+
+class ChatConfig(StrictModel):
+    history_limit: int = Field(..., ge=1, le=500)
+    system_prompt: str
+
 
 class AppConfig(StrictModel):
     app: AppInfoConfig
@@ -166,10 +183,15 @@ class AppConfig(StrictModel):
     security: SecurityConfig
     ui: UiConfig
     llm: LlmConfig
+    chat: ChatConfig
 
 
 class SecretsConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="STU_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="STU_",
+        extra="ignore",
+    )
     llm_api_key: SecretStr | None = None
     llm_base_url: str | None = None
     mcp_token: SecretStr | None = None
@@ -178,14 +200,18 @@ class SecretsConfig(BaseSettings):
 
 def get_config_path() -> Path:
     env_path = os.getenv("STU_CONFIG_PATH")
-    if env_path: return Path(env_path).expanduser().resolve()
+    if env_path:
+        return Path(env_path).expanduser().resolve()
     return Path.cwd() / "stu.json"
 
 
 def load_app_config(config_path: Path | None = None) -> AppConfig:
     path = config_path or get_config_path()
     if not path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {path}. Create stu.json or set STU_CONFIG_PATH.")
+        raise FileNotFoundError(
+            f"Configuration file not found: {path}. "
+            "Create stu.json or set STU_CONFIG_PATH."
+        )
     raw = path.read_text(encoding="utf-8")
     data = json.loads(raw)
     return AppConfig.model_validate(data)
