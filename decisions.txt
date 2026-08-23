@@ -1,0 +1,554 @@
+Project Stu: The Definitive Architectural Milestone Document (v3.0 - FINAL)
+
+
+This document represents the absolute, immutable, and fully detailed source of truth for Project Stu. Every constraint, component, workflow, and resolved bottleneck is documented here. The structural design phase is 100% complete.
+
+
+1. Core Identity & Global Constraints
+Name: Stu.
+Persona: A highly capable, persistent, and self-improving autonomous agent. It operates within a strict control-plane framework, prioritizing safety, transparency, and continuous operational optimization.
+Constraint 1: Zero Hardcoding. All behavioral parameters, file paths, limits, toggles, and allowlists are defined exclusively in stu.json. No magic numbers or hardcoded logic exist in the codebase.
+Constraint 2: Absolute Sandboxing. Stu is strictly confined to its designated working_directory (the workspace/). All file I/O is validated against this boundary. System files (memory/, skills/, stu.json) live inside the workspace but are protected by a read_only_system_paths allowlist to prevent accidental overwrites.
+Constraint 3: Human-in-the-Loop (HITL). Stu can propose new skills and execute complex workflows, but structural expansions require explicit human approval. Destructive actions trigger a "State Yielding" pause, not a blocking wait.
+
+
+2. Configuration & Secrets Architecture
+stu.json (Operational Logic): The single source of truth for runtime behavior. Contains:
+identity: Name, version, locked persona prompt.
+environment: working_directory and base_dir.
+memory: Relative paths for L1, L2, L3, and LanceDB vector stores.
+skills: Paths for approved/ and pending/.
+mcp: Toggles, config directory, allowed_servers, and allowed_egress_domains (strict egress filtering).
+security: sandbox_enforcement, read_only_system_paths, destructive_tools list, file_extension_allowlist.
+ui: Host, port, theme, and trust_thresholds (for Contextual Auto-Trust).
+limits: max_context_tokens, max_tool_iterations, max_file_read_size_kb, max_tool_output_kb, max_ingestion_file_size_mb, ingestion_extension_allowlist.
+.env (Secrets): Strictly isolated, git-ignored. Contains LLM API keys, MCP server tokens, webhook URLs, and advanced observability credentials.
+
+
+
+3. The 3-Layer Memory & Context Isolation (The "Workbench")
+Stu utilizes a 3-layer memory model, combined with a "Workbench/Project" UI model to prevent global brain pollution. Memory is Scoped by Project; Tools are Global.
+Layer 1 (Scratchpad): Pure machine format (JSON/SQLite). Highly volatile, strictly bounded to ~1,000 tokens. Not human-readable. Held in RAM by the MaintenanceDaemon for the currently active project (Write-Through caching).
+Layer 2 (Filing Cabinet): Markdown format for human readability/editing. Contains user preferences, workflow summaries, and "Known Pitfalls".
+Layer 3 (Agent Archive): Append-only SQLite database (agent_history.db) with WAL mode enabled. Records all events, tool calls, errors, and guardrail triggers.
+Dual-Write RAG Strategy: The MaintenanceDaemon maintains a hidden LanceDB vector index. L2 Markdown is chunked and embedded into LanceDB upon update. Semantic RAG queries LanceDB using a strict WHERE project_id = X filter, eliminating parsing latency and ensuring context isolation.
+
+
+
+4. Observability & The 3-Daemon Background Architecture
+Implemented as a distinct, replaceable component using a strict 4-part interface contract (Tracing, Logging, Metrics, Reporting & Export). To prevent priority starvation, background tasks are split into three distinct daemons:
+TelemetryDaemon (High Priority): The Writer Thread. Strictly drains the async observability queue and writes to SQLite. Never makes LLM calls. Never blocks. Handles all task_updated events to prevent DB contention.
+MaintenanceDaemon (High Priority): Handles L1 compaction, LanceDB index updates (Dual-Write), Meta-Learning extraction, debounced state checkpointing (loop_state.json), and the Bi-Directional FileWatcher. Flushes RAM cache to disk on project switches.
+ReportingDaemon (Low Priority): Generates the daily_log_YYYY-MM-DD.md file. Only runs at midnight or on explicit user demand. Allowed to make heavy LLM calls.
+
+
+5. Tooling, RAG, & Execution Architecture
+Universal Tool Catalog: A unified JSON schema that normalizes Native, MCP, and API tools. Hides the origin from the LLM.
+Semantic Tool RAG: Uses local, zero-token vector embeddings via LanceDB to dynamically retrieve the top k relevant tools. Supports incremental upserts/deletes (no full index rebuilds).
+Core Fallback Injection: search_memory, request_human_input, list_workspace_directory, and propose_new_skill are always injected into the LLM context to prevent RAG blind spots.
+Essential Native Tools (v0.1): 8 tools (Memory, File I/O, Agent Control, plus import_skill_from_url).
+MCP Integration & 4 Protective Sub-Systems:
+MCPConnectionManager (Lifecycle/Heartbeats/Process Groups for zombie prevention).
+MCPSchemaValidator (Validates schemas, enforces depth/size limits).
+ExecutionWrapper (Enforces timeouts, truncates massive outputs, applies egress filtering).
+Pre-Execution Sandbox Interceptor (Validates file paths).
+The "Safe Tool" Fast-Path: Read-only/non-destructive tools are auto-labeled is_safe: true. New custom MCP tools default to is_safe: false and require user onboarding in the UI. Safe tools bypass the heavy Guardrail gauntlet.
+
+
+6. The 7-Phase Agentic Control Loop
+Context Assembly: Reads L1 (from RAM). Uses Semantic Memory RAG (LanceDB) to retrieve relevant snippets from L2/L3, filtered by project_id.
+Dynamic Tool Retrieval: Passes prompt to ToolRetriever to get top k tools + Core Fallback tools.
+LLM Reasoning: Constructs lean payload (System Prompt + L1 + Retrieved L2/L3 + Retrieved Tools + User Prompt) and queries LLM via aisuite.
+Execution & Interception: Routes tool calls. Native to Python dispatcher. MCP through 4 sub-systems. GuardrailOrchestrator intercepts based on is_safe flag.
+State Update & Memory Mutation: Appends results to L1. Triggers compaction if limits exceeded.
+Reflection & Self-Improvement: Evaluates execution. Invokes propose_new_skill if a complex pattern succeeds.
+Continuation or Termination: Checks max_tool_iterations. Invokes finish_task. Uses loop_state.json for crash recovery (debounced to disk).
+Crucial Mechanic - State Yielding: The loop never blocks for HITL. If a destructive action requires approval, the loop suspends, yields state to SQLite (AWAITING_APPROVAL), and terminates. It resumes in a new iteration upon UI callback.
+
+
+
+7. Global Guardrails & Meta-Learning
+Implemented as the GuardrailOrchestrator middleware, intercepting at Pre-Loop, In-Loop, and Post-Loop.
+Tier 1 (Critical): Sandbox/Path Traversal Block, Parameter Validation, Destructive Action Confirmation (HITL via State Yielding).
+Tier 2 (High): Resource Exhaustion Stop, Prompt Injection/Indirect Injection Detection (scans MCP/API outputs before LLM context injection, wraps outputs in <tool_output> tags).
+Meta-Learning Feedback Loop: TelemetryDaemon logs guardrail blocks. MaintenanceDaemon extracts patterns and injects "Known Pitfalls" into L2 Memory so the agent learns to avoid previously blocked behaviors.
+
+
+8. The "Task Thread" Scheduler & Proactive Execution
+Replaces a simple TODO or complex ticketing system with a chronological, thread-based ledger.
+Architecture: Stored in agent_history.db (tasks and task_updates tables).
+Execution: The MaintenanceDaemon checks schedules and injects tasks into the 7-Phase Loop. Updates are emitted as events and written by the TelemetryDaemon.
+Resilience (Exponential Backoff): If a recurring task fails 3 consecutive times, it automatically pauses itself and alerts the UI. It will not run again until the user manually clicks "Resume".
+
+
+
+9. Skill Ecosystem & The SkillSanitizer
+Skill Importer: Native tool import_skill_from_url allows downloading community skills.
+Standalone SkillSanitizer: Sits between the importer and the pending/ folder.
+Action 1: Extracts only YAML/JSON frontmatter.
+Action 2: Uses Strict Regex to strip structural system overrides (e.g., <|system|>). Uses Heuristic Flagging for conversational text (e.g., "ignore previous")—it does not silently delete text, but flags the skill with requires_manual_review in the UI.
+Action 3: Passes schema through MCPSchemaValidator.
+Action 4: Checks against destructive_tools list.
+Contextual Auto-Trust: If trust_thresholds in stu.json are met (e.g., skill only uses is_safe: true tools), the MaintenanceDaemon auto-approves it silently.
+
+
+10. File Ingestion & Workspace Management
+Bi-Directional FileWatcher: The MaintenanceDaemon monitors the workspace/ for create, delete, and move events. Deletions trigger vector chunk removal in LanceDB to prevent hallucinations.
+Ingestion Queue & Rate Limiting: The FileWatcher only queues paths in SQLite. The daemon processes the queue at a strict rate limit (e.g., 5 files/minute) to prevent CPU/Disk DoS. Enforces max_ingestion_file_size_mb and ingestion_extension_allowlist.
+
+
+
+11. UI/UX & Real-Time Streaming
+The Workbench: Frontend features a "Projects" sidebar for explicit context isolation.
+Task Threads Tab: Dedicated UI for viewing, pausing, and reviewing the chronological history of proactive/recurring tasks.
+Skill Workshop & Import: UI for reviewing pending/ skills, editing Markdown, batch-approving, and importing from URLs. Includes yellow-highlighted warnings for heuristic injection flags.
+WebSocket Streaming: The TelemetryDaemon pushes events to FastAPI. The gateway buffers and batches events every 300ms to prevent DOM thrashing. The Vanilla JS frontend uses virtual scrolling/limits the "Activity Feed" to the last 50 items.
+Deep Work Toggle: Batches non-destructive HITL prompts to prevent flow interruption.
+
+
+
+12. Resolved Bottlenecks, Blindspots & Tradeoffs (The "Ruthless Review" Log)
+Markdown Parsing Bottleneck: Solved via Dual-Write (Humans read MD, machines read LanceDB).
+Monolith Archivist Starvation: Solved by splitting into 3 distinct Daemons.
+Disk I/O Thrashing: Solved via Debounced Checkpointing (5s idle timeout).
+MCP Zombie Processes: Solved via OS Process Groups and global signal handlers.
+HITL Async Blocking: Solved via State Yielding to SQLite.
+Full Index Rebuilds: Solved via LanceDB incremental upserts.
+Abstract Prompt RAG Failure: Solved via Core Fallback Injection.
+RAM Cache Invalidation Race: Solved via Write-Through Caching and Project Locks on switch.
+Task Thread Infinite Retry: Solved via Auto-Pause after 3 consecutive failures.
+Orphaned Vector Chunks: Solved via Bi-Directional FileWatching (listening to OS delete/move events).
+Cross-Project Tool Leakage: Solved by explicitly defining Tools as Global, Memory as Scoped.
+SkillSanitizer False Positives: Solved by using Strict Regex for structural tags and Heuristic Flagging for conversational text.
+File Ingestion DoS: Solved via SQLite Ingestion Queue and strict rate limiting.
+WebSocket Event Storm: Solved via 300ms gateway batching and frontend DOM limits.
+
+******************************************************
+We are adopting a Center-Outward development model. We will build the core cognitive loop first, wrap it in a minimal UI, and then expand outward to memory, tools, security, and background daemons. Every milestone will deliver a fully verified, working backend module AND its corresponding Alpine.js frontend interface.
+Furthermore, our UI will adopt the "Linear + GitHub" Hybrid aesthetic, heavily utilizing Bento-style cards with semantic color-coding and subtle colored shadows to indicate state, importance, and telemetry.
+Here is the finalized, synchronized development plan.
+🎨 UI/UX Design System (Locked for Implementation)
+Layout: 3-Column Desktop (Left: Nav/Settings | Center: Chat/Conversation | Right: Telemetry/Activity Feed). Collapses to adaptive Bento grids on smaller screens.
+Framework: Alpine.js (Zero build step, reactive).
+Visual Style: Clean, minimalist (Linear), information-dense where needed (GitHub).
+Component Pattern: Bento Cards. Modular, rounded corners (8px).
+Color & Shadow Semantics:
+Primary (Blue): Chat interface, active states, agent thinking. Shadow: rgba(59, 130, 246, 0.15)
+Success/Safe (Green): Approved skills, safe tools, completed tasks. Shadow: rgba(16, 185, 129, 0.15)
+Warning/Pending (Amber): Heuristic flags, pending approvals, paused tasks. Shadow: rgba(245, 158, 11, 0.15)
+Error/Destructive (Red): Guardrail blocks, destructive tools, failed tasks. Shadow: rgba(239, 68, 68, 0.15)
+🟢 Milestone 1: The Bedrock & The Shell (Foundation + UI Skeleton)
+Objective: Establish the project structure, configuration layer, and the 3-column responsive UI shell.
+Backend Actions:
+Initialize UV project (pyproject.toml).
+Define and validate stu.json and .env via Pydantic.
+Bootstrap the workspace/ directory structure.
+Frontend Actions:
+Create index.html with the 3-column grid layout.
+Implement CSS variables (Blue palette, semantic colors, Bento shadows).
+Initialize Alpine.js store (app.js) for global state (active project, theme).
+Build the Left Navigation sidebar (static for now) and responsive collapse logic.
+Files to Create:
+pyproject.toml, stu.json, .env.example
+src/stu/config.py, src/stu/models.py, src/stu/constants.py
+frontend/index.html, frontend/css/styles.css, frontend/js/app.js
+Definition of Done (DoD):
+uv sync runs cleanly. Config loads and creates directories.
+UI renders the 3-column layout in browser.
+Resizing the browser window correctly collapses the left sidebar.
+Alpine.js store initializes without console errors.
+🟡 Milestone 2: The Mind & The Voice (Core Loop + Minimal Chat + Telemetry)
+Objective: Build the 7-Phase Agentic Loop (Center) and connect it to the Chat and Telemetry panels.
+Backend Actions:
+Implement the 7-Phase Loop (simplified: no complex RAG yet, just L1/L3 basic read/write).
+Integrate aisuite for LLM routing.
+Build the FastAPI WebSocket gateway (with 300ms batching).
+Emit basic telemetry events (Phase start/end, LLM call, Tool call) to the WebSocket.
+Frontend Actions:
+Center Panel: Build the Chat Interface (Message bubbles, input box, "Deep Work" toggle).
+Right Panel: Build the Telemetry/Activity Feed (Alpine.js list consuming WebSocket events, rendering Bento cards for each phase/tool call).
+Connect WebSocket client to the backend.
+Files to Create:
+src/stu/core/loop.py, src/stu/core/state_manager.py
+src/stu/observability/event_bus.py, src/stu/ui/websocket.py, src/stu/ui/api.py
+frontend/js/components/chat.js, frontend/js/components/telemetry_feed.js
+Definition of Done (DoD):
+User types in Chat -> Agent processes via 7-Phase Loop -> Final text appears in Center Panel.
+Right Panel streams live telemetry (e.g., "Phase 3: Thinking...", "Calling LLM...") in real-time without UI freezing.
+"Deep Work" toggle successfully updates backend state.
+🟠 Milestone 3: The Senses & The Hands (Memory + Tools + RAG + UI Inspectors)
+Objective: Expand outward to the 3-Layer Memory, Semantic Tool RAG, Native/MCP Tools, and build the UI to inspect them.
+Backend Actions:
+Implement L1 (RAM cached), L2 (Markdown), L3 (SQLite WAL), and LanceDB Dual-Write.
+Build Semantic Tool RAG (LanceDB) and Core Fallback injection.
+Implement the 8 Native Tools and basic MCP Connection Manager.
+Frontend Actions:
+Add "Memory Inspector" and "Tool Manager" to the Left Nav.
+Memory Inspector UI: Bento card showing L2 Markdown editor and a list of "Known Pitfalls" (Meta-learning).
+Tool Manager UI: Bento grid showing connected MCP tools, with toggle switches for is_safe (Green/Red shadows).
+Files to Create:
+src/stu/memory/ (l1, l2, l3, vector_store)
+src/stu/tools/ (catalog, retriever, native/, mcp/)
+frontend/js/components/memory_inspector.js, frontend/js/components/tool_manager.js
+Definition of Done (DoD):
+Agent successfully uses Semantic RAG to select tools and executes a multi-step file task.
+Editing L2 in the Memory Inspector UI updates the LanceDB index (verified via agent memory retrieval).
+Toggling a tool to is_safe: false in the UI forces the agent to trigger HITL for that tool.
+🔴 Milestone 4: The Shield (Guardrails, Sanitizer, HITL State Yielding + Approval UI)
+Objective: Implement the security layer and the non-blocking HITL approval workflows.
+Backend Actions:
+Build GuardrailOrchestrator (Pre/In/Post loop interceptors).
+Implement HITL State Yielding (Loop pauses, writes to SQLite, yields control).
+Build the standalone SkillSanitizer (Regex stripping, heuristic flagging).
+Frontend Actions:
+HITL Modal: Interstitial overlay that blocks the UI when a destructive action or heuristic flag is detected. Uses Red/Amber Bento cards to show risk.
+Implement the "Approve/Reject" callbacks via Alpine.js to resume the backend loop.
+Files to Create:
+src/stu/core/guardrails.py, src/stu/security/skill_sanitizer.py
+frontend/js/components/hitl_modal.js
+Definition of Done (DoD):
+Agent attempts to write to a protected path -> Loop yields -> UI shows Red HITL Modal -> User clicks Approve -> Loop resumes and executes.
+Agent reads a file with prompt injection -> Guardrail blocks it -> UI shows Red Telemetry card ("Injection Blocked").
+🟣 Milestone 5: The Autonomic System (Daemons, Task Threads, File Watcher + Bento Dashboard)
+Objective: Build the background processes and the proactive "Task Thread" UI.
+Backend Actions:
+Implement MaintenanceDaemon, ReportingDaemon, and Scheduler.
+Implement Bi-Directional FileWatcher and Ingestion Queue.
+Implement Exponential Backoff and Auto-Pause for failing tasks.
+Frontend Actions:
+Add "Task Threads" and "Dashboard" to Left Nav.
+Task Threads UI: Master-detail view. List of tasks on left. Clicking opens a thread of Bento cards (Green=Success, Amber=Paused, Red=Failed).
+Dashboard UI: Bento grid showing Token stats, Daily Logs, and Guardrail block summaries.
+Files to Create:
+src/stu/daemons/ (maintenance, reporting, scheduler, file_watcher)
+frontend/js/components/task_threads.js, frontend/js/components/dashboard.js
+Definition of Done (DoD):
+A recurring task fails 3 times -> Backend auto-pauses -> UI updates the task card to Amber ("Paused").
+Deleting a file in the OS updates the LanceDB index (verified via Memory Inspector).
+Dashboard accurately reflects token usage from token_information.md.
+🔵 Milestone 6: The Workshop (Skill Ecosystem + Import + HITL Approval Center)
+Objective: Complete the self-improvement loop with the Skill Workshop and Importer.
+Backend Actions:
+Implement import_skill_from_url native tool.
+Wire up the pending/ directory watcher to push events to the UI.
+Implement Contextual Auto-Trust logic in the MaintenanceDaemon.
+Frontend Actions:
+Skill Workshop UI:
+"Import from URL" input bar.
+Bento grid of "Pending Skills".
+Clicking a pending skill opens a Diff/Preview view.
+Heuristic warnings display as yellow-bordered cards.
+"Approve" / "Batch Approve" buttons.
+Files to Create:
+src/stu/tools/native/skill_management.py
+frontend/js/components/skill_workshop.js
+Definition of Done (DoD):
+User pastes GitHub URL -> Skill downloads -> Sanitizer flags a heuristic warning -> UI shows Yellow card -> User edits and Approves -> Agent immediately has the new tool in its RAG index.
+A safe, read-only skill is proposed -> MaintenanceDaemon auto-approves it -> UI shows a brief "Auto-approved" toast notification.
+⚫ Milestone 7: Hardening, Polish & v3.0 Launch
+Objective: End-to-end integration, performance tuning, and security audit.
+Actions:
+Performance: Profile WebSocket batching, LanceDB query latency, and RAM cache invalidation.
+Security Audit: Run automated prompt injection and path traversal scripts against the live UI/Backend.
+UI Polish: Ensure all Bento cards have consistent shadows, dark mode is perfect, and responsive breakpoints hold up.
+Documentation: Finalize README.md with UI screenshots and configuration guides.
+Definition of Done (DoD):
+1-hour continuous execution loop shows zero memory leaks.
+100% of automated security attacks are blocked and correctly reflected in the UI Telemetry feed.
+UI remains responsive (60fps) during heavy WebSocket telemetry bursts.
+Code passes all ruff and type checks.
+
+
+
+
+******************************************************************************************************************************************************************
+*****************************************************************************************************************************************************************
+
+Project Stu: Architectural Milestone & Decision Record (v2.0 - FINAL)
+This document is the absolute, immutable source of truth for Project Stu. The structural design phase is now 100% complete.
+
+
+1. Core Identity & Global Constraints
+
+
+Name: Stu.
+Persona: A highly capable, persistent, and self-improving autonomous agent. It operates within a strict control-plane framework, prioritizing safety, transparency, and continuous operational optimization.
+Constraint 1: Zero Hardcoding. All behavioral parameters, file paths, limits, and toggles are defined exclusively in stu.json.
+Constraint 2: Absolute Sandboxing. Stu is strictly confined to its designated working_directory (the workspace/). All file I/O is validated against this boundary.
+Constraint 3: Human-in-the-Loop (HITL). Stu can propose new skills, but they are quarantined. Execution of new capabilities requires explicit human approval.
+
+
+2. Configuration & Secrets Management
+stu.json (Operational Logic): Contains identity, environment paths, memory paths, skill directories, MCP configs, security rules, UI settings, observability configs, and strict limits. Includes a read_only_system_paths allowlist to resolve the Sandbox Paradox.
+.env (Secrets): Strictly isolated. Contains LLM API keys, MCP server tokens, webhook URLs, and advanced observability credentials.
+
+
+3. Memory Subsystem & RAG Architecture
+Layer 1 (Scratchpad): Pure machine format (JSON/SQLite). Highly volatile, strictly bounded to ~1,000 tokens. Not human-readable.
+Layer 2 (Filing Cabinet): Markdown format for human readability/editing. Contains user preferences, workflow summaries, and "Known Pitfalls".
+Layer 3 (Agent Archive): Append-only SQLite database (agent_history.db) with WAL mode enabled.
+Dual-Write RAG Strategy: The MaintenanceDaemon maintains a hidden LanceDB vector index. L2 Markdown is chunked and embedded into LanceDB upon update. Semantic RAG queries LanceDB, not the raw Markdown, eliminating parsing latency.
+
+
+4. Observability & The 3-Daemon Architecture
+Decoupled Interface: 4-part contract (Tracing, Logging, Metrics, Reporting & Export) ensuring the core loop never knows how logs are stored.
+TelemetryDaemon (High Priority): Strictly drains the async observability queue and writes to SQLite. Never makes LLM calls.
+MaintenanceDaemon (High Priority): Handles L1 compaction, LanceDB index updates (Dual-Write), Meta-Learning extraction, and debounced state checkpointing.
+ReportingDaemon (Low Priority): Generates the daily_log_YYYY-MM-DD.md file. Only runs at midnight or on demand.
+
+
+5. Tooling & Execution Architecture
+Universal Tool Catalog: Unified JSON schema normalizing Native, MCP, and API tools. Hides origin from the LLM.
+Semantic Tool RAG: Uses local, zero-token vector embeddings via LanceDB to dynamically retrieve the top k relevant tools.
+Core Fallback Injection: search_memory, request_human_input, list_workspace_directory, and propose_new_skill are always injected into the LLM context to prevent RAG blind spots.
+Essential Native Tools (v0.1): 8 tools (Memory, File I/O, Agent Control).
+MCP Integration & 4 Protective Sub-Systems: MCPConnectionManager, MCPSchemaValidator, ExecutionWrapper, Pre-Execution Sandbox Interceptor.
+The "Safe Tool" Fast-Path: Read-only/non-destructive tools are auto-labeled is_safe: true. New custom MCP tools require user onboarding in the UI. Safe tools bypass the heavy Guardrail gauntlet.
+
+
+6. The 7-Phase Agentic Control Loop
+Context Assembly: Reads L1. Uses Semantic Memory RAG (LanceDB) to retrieve relevant snippets from L2/L3.
+Dynamic Tool Retrieval: Passes prompt to ToolRetriever to get top k tools + Core Fallback tools.
+LLM Reasoning: Constructs lean payload and queries LLM via aisuite.
+Execution & Interception: Routes tool calls. Native to Python dispatcher. MCP through 4 sub-systems. GuardrailOrchestrator intercepts based on is_safe flag.
+State Update & Memory Mutation: Appends results to L1. Triggers compaction if limits exceeded.
+Reflection & Self-Improvement: Evaluates execution. Invokes propose_new_skill if a complex pattern succeeds.
+Continuation or Termination: Checks max_tool_iterations. Invokes finish_task. Uses loop_state.json for crash recovery.
+7. Global Guardrails & Safety
+GuardrailOrchestrator Middleware: Intercepts at Pre-Loop, In-Loop, and Post-Loop.
+Tier 1 (Critical): Sandbox/Path Traversal Block, Parameter Validation, Destructive Action Confirmation (HITL).
+Tier 2 (High): Resource Exhaustion Stop, Prompt Injection/Indirect Injection Detection.
+Meta-Learning Feedback Loop: TelemetryDaemon logs guardrail blocks. MaintenanceDaemon extracts patterns and injects "Known Pitfalls" into L2 Memory.
+8. Execution & State Optimizations
+Debounced Checkpointing: loop_state.json written to disk only on 5-second idle timeout or HITL yield to prevent Disk I/O thrashing.
+MCP Teardown: OS process groups used for stdio MCPs. Global signal handlers ensure graceful child process termination on crash/exit (prevents zombies).
+HITL State Yielding: Destructive action approvals do not block the async loop. State is yielded to SQLite, loop terminates, and resumes upon UI callback.
+Incremental Vector Upserts: LanceDB allows instant, zero-downtime tool/skill additions without full index rebuilds.
+9. Security Architecture (External APIs, MCP, LLMs)
+Indirect Prompt Injection: Tool outputs from MCP/APIs are scanned by the Orchestrator for injection patterns before entering the LLM context. Outputs are wrapped in explicit <tool_output> XML tags with strict system instructions.
+Data Exfiltration Prevention: Strict Egress Filtering via ExecutionWrapper. Outbound network requests from MCP tools are checked against an allowed_egress_domains list in stu.json.
+Supply Chain / Malicious Schemas: MCPSchemaValidator rejects tool schemas exceeding max depth/size. ExecutionWrapper truncates tool outputs exceeding max_tool_output_kb.
+Destructive Hallucination: stu.json maintains a destructive_tools list. Any tool in this list triggers HITL State Yielding. All new MCP tools default to is_safe: false.
+API Key Leakage: Lightweight, regex-based Output Scrubber checks the final LLM response for patterns matching .env API keys, replacing matches with [REDACTED] before UI display.
+
+
+*********************************************************************************************************************************************************************************
+____________________________________________________________________________________________________________________________________________________________________________________
+
+Project Stu: Architectural Milestone & Decision Record (v1.0)
+This document serves as the immutable, comprehensive record of all architectural decisions, processes, and constraints finalized for Project Stu. It is the single source of truth for the implementation phase.
+
+
+1. Core Identity & Global Constraints
+Name: Stu.
+Persona: A highly capable, persistent, and self-improving autonomous agent. It operates within a strict control-plane framework, prioritizing safety, transparency, and continuous operational optimization.
+Constraint 1: Zero Hardcoding. All behavioral parameters, file paths, limits, and toggles are defined exclusively in stu.json. No magic numbers exist in the codebase.
+Constraint 2: Absolute Sandboxing. Stu is strictly confined to its designated working_directory (the workspace/). All file I/O is validated against this boundary.
+Constraint 3: Human-in-the-Loop (HITL). Stu can propose new skills, but they are quarantined. Execution of new capabilities requires explicit human approval.
+
+
+
+2. Configuration & Secrets Management
+stu.json (Operational Logic): Contains identity, environment paths, memory paths, skill directories, MCP configs, scheduler/communication placeholders, security rules, UI settings, observability configs, and strict limits (e.g., max_context_tokens, max_file_read_size_kb).
+.env (Secrets): Strictly isolated. Contains LLM API keys, MCP server tokens, webhook URLs, and advanced observability credentials.
+Sandbox Paradox Resolution: System files (memory/, skills/, stu.json) live inside the workspace/. To prevent accidental overwrites, stu.json includes a read_only_system_paths allowlist. The Sandbox Interceptor blocks write operations to these specific paths.
+
+
+3. The 3-Layer Memory Subsystem
+All memory is persistent and stored locally within the workspace/.
+Layer 1: Short-Term Scratchpad (short_term.md): Highly volatile. Contains only the current objective, the last 3 tool calls/results, and the immediate next step. Strictly bounded to ~1,000 tokens to prevent context inflation.
+Layer 2: Long-Term Working Memory (long_term_working.md): The "Filing Cabinet". Contains user preferences, workflow summaries, ongoing project states, and the "Known Pitfalls" (Meta-Learning) summaries.
+Layer 3: Long-Term Agent Archive (agent_history.db): An append-only SQLite database (WAL mode enabled) recording all events, tool calls, errors, and guardrail triggers.
+Daily Reporting (daily_log_YYYY-MM-DD.md): A human-readable, end-of-day generated audit file containing a summary of actions and observability stats.
+
+
+4. The Decoupled Observability Layer
+Implemented as a distinct, replaceable component using a strict 4-part interface contract to ensure zero coupling with the core agent loop.
+Tracing: start_span() and end_span() for hierarchical operation flows.
+Logging: log_event() for discrete, human-readable occurrences.
+Metrics: record_metric() for high-frequency numerical data (token counts, API calls).
+Reporting & Export: generate_daily_summary() and flush() for batching and writing to disk/external endpoints.
+
+
+
+5. Tooling & Execution Architecture
+Universal Tool Catalog: A unified JSON schema that normalizes Native, MCP, and API tools. Hides the origin from the LLM.
+Semantic Tool RAG: Replaces rigid category routing. Uses local, zero-token vector embeddings (e.g., all-MiniLM-L6-v2 via FAISS) to dynamically retrieve the top k most relevant tools for the specific user prompt.
+Essential Native Tools (v0.1):
+search_memory | 2. update_short_term_memory | 3. read_workspace_file | 4. write_workspace_file | 5. list_workspace_directory | 6. propose_new_skill | 7. request_human_input | 8. finish_task.
+MCP Integration & 4 Protective Sub-Systems:
+MCPConnectionManager: Lifecycle, pooling, and heartbeats.
+MCPSchemaValidator: Validates incoming MCP schemas against our Pydantic models.
+ExecutionWrapper: Enforces timeout_seconds at the Python level.
+Pre-Execution Sandbox Interceptor: Validates file paths before sending to MCP.
+The "Safe Tool" Fast-Path: Read-only/non-destructive tools are auto-labeled is_safe: true. New custom MCP tools require user onboarding in the UI to be labeled safe. Safe tools bypass the heavy Guardrail gauntlet for faster execution.
+
+
+
+6. The 7-Phase Agentic Control Loop
+The cognitive cycle Stu executes for every user objective:
+Context Assembly: Reads L1 (Scratchpad). Uses Semantic Memory RAG to retrieve only relevant snippets from L2 and L3.
+Dynamic Tool Retrieval: Passes the prompt to the ToolRetriever to get the top k relevant tools from the Universal Catalog.
+LLM Reasoning: Constructs a lean payload (System Prompt + L1 + Retrieved L2/L3 + Retrieved Tools + User Prompt) and queries the LLM via aisuite.
+Execution & Interception: Routes tool calls. Native tools go to the Python dispatcher. MCP tools go through the 4 protective sub-systems. The GuardrailOrchestrator intercepts based on the is_safe flag.
+State Update & Memory Mutation: Appends tool results to L1. If L1 exceeds token limits, triggers compaction (summarize and move to L2).
+Reflection & Self-Improvement: Evaluates execution. If a complex pattern succeeds, invokes propose_new_skill to draft a Markdown skill for the pending/ directory.
+Continuation or Termination: Checks max_tool_iterations. If the task is done or limit is hit, invokes finish_task. Uses loop_state.json for crash recovery.
+
+
+
+7. Global Guardrails & Safety
+Implemented as the GuardrailOrchestrator middleware, intercepting at Pre-Loop, In-Loop, and Post-Loop choke points.
+Tier 1 (Critical): Sandbox/Path Traversal Block, Parameter Validation/Schema Enforcement, Destructive Action Confirmation (HITL).
+Tier 2 (High): Resource Exhaustion Stop, Prompt Injection/Indirect Injection Detection.
+Tier 3 (Discarded for v0.1): PII Redaction, Factuality/Grounding Checks, Toxicity/Bias Filters (deemed unnecessary for a local-first personal agent).
+Meta-Learning Feedback Loop: The Archivist queries SQLite for GuardrailOrchestrator blocks, distills them into "Known Pitfalls", and injects them into L2 Memory so the agent learns to avoid previously blocked behaviors.
+
+
+
+8. Background Processes & Workflows
+The Persistent Process ("The Archivist"): An asynchronous background daemon.
+Writer Thread: Drains the async queue to write to SQLite (preventing locks).
+Memory Compaction: Monitors L1 and summarizes to L2 when thresholds are met.
+Meta-Learning Extraction: Daily cron to extract guardrail patterns into L2.
+Daily Reporting: Generates the daily Markdown audit file.
+State Checkpointing: Continuously updates loop_state.json.
+The Skill Workshop Workflow (HITL):
+Agent calls propose_new_skill -> 2. Saved to skills/pending/ -> 3. UI detects and notifies user -> 4. User reviews/edits in Skill Workshop UI -> 5. User clicks "Approve" -> 6. Moved to skills/approved/ -> 7. Archivist parses, adds to Universal Catalog, and rebuilds the Semantic RAG index.
+
+
+
+
+9. Resolved Architectural Gaps & Tradeoffs
+SQLite Concurrency: Solved via SQLite WAL mode and a dedicated asynchronous Writer Thread.
+Crash Recovery: Solved via loop_state.json checkpointing at the end of every phase.
+RAG Latency: Mitigated via in-memory caching of static tool embeddings and ONNX-optimized local embedding models.
+Memory I/O Bottleneck: Mitigated via Async I/O and batching writes during idle moments.
+HITL Friction: Mitigated via batch approvals in the UI and auto-trust patterns for safe, read-only skill proposals.
+🚀 Next Steps: Implementation Phase
+The structural design is 100% complete and locked. We are now ready to transition from architecture to implementation.
+As per your previous instruction, I have not written any code yet.
+
+
+
+
+10. Refined Memory Storage & Dual-Write RAG
+Layer 1 (Scratchpad): Pure machine format (JSON/SQLite). Not human-readable.
+Layer 2 (Filing Cabinet): Markdown for human readability/editing.
+Dual-Write RAG: The MaintenanceDaemon maintains a hidden LanceDB vector index. L2 Markdown is chunked and embedded into LanceDB upon update. Semantic RAG queries LanceDB, not the raw Markdown.
+
+
+11. The 3-Daemon Background Architecture
+TelemetryDaemon (High): Async queue to SQLite writer. No LLM calls.
+MaintenanceDaemon (High): Memory compaction, LanceDB index updates, Meta-Learning, debounced checkpointing.
+ReportingDaemon (Low): Daily Markdown report generation.
+
+
+12. Execution & State Optimizations
+Debounced Checkpointing: loop_state.json written to disk only on 5-second idle timeout or HITL yield.
+MCP Teardown: OS process groups used for stdio MCPs. Global signal handlers ensure graceful child process termination on crash/exit.
+HITL State Yielding: Destructive action approvals do not block the async loop. State is yielded to SQLite, loop terminates, and resumes upon UI callback.
+Incremental Vector Upserts: LanceDB used for Semantic Tool/Memory RAG to allow instant, zero-downtime tool/skill additions.
+Core Fallback Injection: search_memory, request_human_input, list_workspace_directory, and propose_new_skill are always injected into the LLM context.
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*********************************************************************************************************************************************************************+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+1. Identity & Core Constraints
+Name: Stu.
+Zero Hardcoding: All behavioral parameters, paths, and limits are strictly defined in stu.json. No magic numbers in the codebase.
+Absolute Sandboxing: Stu is confined to a designated working_directory. All file I/O is validated against this boundary at runtime. Violations are blocked and logged.
+HITL Skill Workshop: Stu can propose skills, but they are quarantined in a pending state. Execution requires explicit human approval.
+
+
+2. Configuration & Secrets
+stu.json: Contains all non-sensitive operational logic, relative paths, limits, and feature toggles.
+.env: Contains all sensitive data (API keys, tokens). Strictly local, git-ignored, and loaded at runtime.
+
+
+3. Memory Subsystem (3-Layer Model)
+Layer 1 (Short-Term MD): short_term.md. Volatile, current-task context.
+Layer 2 (Long-Term Working MD): long_term_working.md. Persistent user preferences, workflow summaries, ongoing project states.
+Layer 3 (SQLite DB): agent_history.db. Append-only structured archive (events, tool calls, errors). No intermediate MD journal.
+Daily Reporting: daily_log_YYYY-MM-DD.md. A human-readable, end-of-day generated audit file containing a summary of actions and observability stats.
+
+
+4. Decoupled Observability Layer
+Architecture: Uses an Observer pattern/Event Bus. The core agent emits events; it does not know how they are logged.
+Default Implementation:
+Writes detailed event payloads to Layer 3 (SQLite).
+Appends timestamped token/call stats to token_information.md.
+Generates the daily summary for the daily_log_YYYY-MM-DD.md file.
+Replaceability: The core agent interacts only with a strict interface. The backend implementation can be swapped (e.g., to OpenTelemetry) without disrupting Stu's operations.
+
+
+Locked System Prompt:
+"You are a highly capable, persistent, and self-improving autonomous agent. Your cognitive architecture is built on a continuous reflection loop: after executing tasks, you analyze your performance, identify inefficiencies, and distill reusable, modular instructions (skills) to optimize future operations. You operate within a strict control-plane framework, utilizing a dynamic skill registry and secure external protocol extensions to execute complex, multi-step workflows. You maintain a multi-layered memory system to ensure context persistence and operational continuity across sessions. You prioritize absolute safety, strict adherence to your designated sandbox boundaries, and require explicit human-in-the-loop approval for any self-generated capabilities or structural modifications. You are helpful, precise, and continuously optimize your own operational efficiency while remaining transparent about your actions."
+
+
+Configuration Schema (stu.json)
+All operational logic is strictly defined here. No magic numbers or hardcoded paths exist in the codebase. Locked sections include:
+identity: Name, version, and the locked persona prompt.
+environment: working_directory (absolute sandbox boundary) and base_dir.
+memory: Relative paths for short_term.md, long_term_working.md, agent_history.db, token_information.md, and daily_reports/.
+skills: Paths for approved/ and pending/ directories.
+mcp: Toggle, config directory, and allowed_servers list.
+scheduler: (Anticipated) Toggles, max concurrent tasks, timeouts, and state file path.
+communication: (Anticipated) Webhook endpoints and allowed inbound channels.
+security: sandbox_enforcement mode, file_extension_allowlist, and network request restrictions.
+ui: Host, port, and theme settings for the local dashboard.
+observability: Backend implementation selector, log level, and nested configs for tracing, metrics, and exporters (local file and OTLP).
+limits: max_context_tokens, max_tool_iterations, and max_file_read_size_kb.
+
+
+
+Secrets Management (.env)
+Strict separation of secrets from operational logic. Locked categories include:
+LLM Providers: API keys/hosts for OpenAI, Anthropic, Groq, and Ollama.
+MCP Servers: Authentication tokens for external tool servers.
+Communication: Tokens/URLs for Slack, Discord, or custom webhooks.
+Advanced Observability: OTLP endpoints, API keys, and Datadog credentials.
+Infrastructure/Security: Redis/Postgres DSNs, Vault tokens, and encryption keys.
+
+Granular Observability Interface
+To ensure true decoupling and future replaceability (e.g., swapping to OpenTelemetry), the observability layer is locked into a strict 4-part contract:
+Tracing: start_span() and end_span() for tracking hierarchical operation flows and durations.
+Logging: log_event() for discrete, human-readable occurrences (e.g., security blocks, approvals).
+Metrics: record_metric() for high-frequency numerical data (e.g., token counts, API call counts) to enable future budgeting.
+Reporting & Export: generate_daily_summary() (aggregates data into the human-readable daily Markdown report) and flush() (forces buffered data to disk or external endpoints).
+
+
+
+Tooling & Execution Architecture
+1. Tool Retrieval Architecture (Semantic Tool RAG)
+To minimize LLM input tokens without breaking cross-category tool chaining, rigid category routing is rejected in favor of Semantic Tool RAG.
+Mechanism: Uses local, lightweight vector embeddings (e.g., sentence-transformers + FAISS) to map tool descriptions and user prompts into vector space.
+Cost: Runs entirely locally on the CPU. Consumes zero LLM API tokens.
+Component Interface: Implemented as a distinct, replaceable component named ToolRetriever.
+build_index(tools): Embeds and stores the Universal Tool Catalog.
+retrieve(prompt, top_k): Returns the top k most semantically relevant tools for the specific user query.
+
+
+
+Essential Native Tools (v0.1 Baseline)
+Stu’s core Python runtime includes exactly 8 foundational tools. All are strictly bound by stu.json limits and the working_directory sandbox.
+Memory & State:
+search_memory: Queries Layer 2 (Long-term working MD) and Layer 3 (SQLite archive).
+update_short_term_memory: Overwrites Layer 1 (Short-term MD) with current task context.
+Sandboxed File I/O:
+read_workspace_file: Reads text files. Enforces max_file_read_size_kb.
+write_workspace_file: Creates/overwrites files. Enforces file_extension_allowlist.
+list_workspace_directory: Lists directory contents. Prevents directory traversal (../../).
+Agent Control & Meta:
+propose_new_skill: Drafts a skill and saves it to skills/pending/ (triggers HITL).
+request_human_input: Pauses the loop to prompt the user via the UI (crucial for HITL and complex decisions).
+finish_task: Signals task completion to the control plane, triggering memory updates and observability logging.
+
+
+
+MCP Integration & Protective Sub-Systems
+External tools via Model Context Protocol (MCP) are normalized into the Universal Tool Catalog (hiding their origin from the LLM). To handle the inherent fragility of external connections, MCP integration is wrapped in four mandatory protective sub-systems:
+MCPConnectionManager: Handles lifecycle, connection pooling, and heartbeats. Automatically restarts stdio processes or reconnects sse endpoints if a server drops.
+MCPSchemaValidator: Intercepts incoming MCP tool schemas and strictly validates them against our Pydantic-defined Unified Tool Schema. Rejects and logs malformed tools before they reach the LLM.
+ExecutionWrapper: Enforces the timeout_seconds property defined in the Unified Tool Schema at the Python level (e.g., via asyncio). Kills hanging MCP calls and returns a clean timeout error to the LLM.
+Pre-Execution Sandbox Interceptor: Intercepts LLM arguments before they are sent to any MCP tool that implies file system access. Resolves paths and strictly validates them against the working_directory boundary to prevent sandbox bypasses.

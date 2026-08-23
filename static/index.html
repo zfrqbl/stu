@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project Stu v3.0</title>
+
+  <link rel="stylesheet" href="/styles.css">
+
+  <script src="/vendor/alpine.min.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+
+<body
+  x-data
+  x-init="$store.stu.init()"
+  data-api-prefix="/api/v1"
+  :class="{
+    'nav-collapsed': $store.stu.navCollapsed,
+    'mobile-nav-open': $store.stu.mobileNavOpen,
+    'telemetry-visible': $store.stu.telemetryVisible
+  }"
+>
+  <a class="skip-link" href="#chat-pane">Skip to chat</a>
+
+  <div id="alpine-missing-warning" class="system-warning" hidden>
+    Alpine.js is missing. Run <code>uv run python scripts/vendor_alpine.py</code> and reload.
+  </div>
+
+  <div class="app-shell">
+    <aside class="pane nav-pane" aria-label="Navigation">
+      <header class="nav-header">
+        <span class="brand-mark" aria-hidden="true">Stu</span>
+        <span class="brand-label nav-label">Project Stu</span>
+        <button
+          type="button"
+          class="icon-button nav-close"
+          @click="$store.stu.closeMobileNav()"
+          aria-label="Close navigation"
+        >
+          ×
+        </button>
+      </header>
+
+      <div class="project-selector">
+        <label class="project-label" for="project-selector">Project</label>
+        <select id="project-selector" x-model="$store.stu.currentProjectId">
+          <template x-for="project in $store.stu.projects" :key="project.id">
+            <option :value="project.id" x-text="project.name"></option>
+          </template>
+        </select>
+      </div>
+
+      <nav class="nav-body" aria-label="Primary navigation">
+        <ul class="nav-list">
+          <template x-for="item in $store.stu.navItems" :key="item.id">
+            <li>
+              <button
+                type="button"
+                class="nav-item"
+                :class="{ active: $store.stu.activeView === item.id }"
+                @click="$store.stu.setActiveView(item.id)"
+                :aria-current="$store.stu.activeView === item.id ? 'page' : false"
+              >
+                <span class="nav-icon" aria-hidden="true" x-text="item.icon"></span>
+                <span class="nav-label" x-text="item.label"></span>
+              </button>
+            </li>
+          </template>
+        </ul>
+      </nav>
+
+      <footer class="nav-footer">
+        <div class="nav-status">
+          <span
+            class="status-dot"
+            :class="$store.stu.healthDotClass()"
+            role="status"
+            :aria-label="$store.stu.healthLabel()"
+          ></span>
+          <span class="nav-label" x-text="$store.stu.healthLabel()"></span>
+        </div>
+
+        <button
+          type="button"
+          class="icon-button nav-collapse-toggle"
+          @click="$store.stu.toggleNav()"
+          :aria-expanded="!$store.stu.navCollapsed"
+          aria-label="Toggle navigation"
+        >
+          ≡
+        </button>
+      </footer>
+    </aside>
+
+    <div
+      class="backdrop"
+      x-show="$store.stu.mobileNavOpen"
+      @click="$store.stu.closeMobileNav()"
+      aria-hidden="true"
+    ></div>
+
+    <main id="chat-pane" class="pane chat-pane" tabindex="-1">
+      <header class="pane-header">
+        <button
+          type="button"
+          class="icon-button mobile-nav-toggle"
+          @click="$store.stu.openMobileNav()"
+          aria-label="Open navigation"
+        >
+          ≡
+        </button>
+
+        <div class="pane-title">
+          <h1>Chat</h1>
+          <p class="pane-subtitle">Milestone 1 shell. Agentic execution arrives in Milestone 2.</p>
+        </div>
+
+        <div class="pane-actions">
+          <span class="health-pill" :class="$store.stu.healthDotClass()" x-text="$store.stu.healthLabel()"></span>
+          <button type="button" class="btn" @click="$store.stu.toggleTelemetry()">Telemetry</button>
+        </div>
+      </header>
+
+      <section class="chat-messages" aria-live="polite">
+        <template x-for="message in $store.stu.chat.messages" :key="message.id">
+          <article class="chat-message" :class="`chat-message--${message.role}`">
+            <span class="chat-role" x-text="message.role"></span>
+            <p x-text="message.content"></p>
+          </article>
+        </template>
+      </section>
+
+      <form class="composer" @submit.prevent="$store.stu.sendDraft()">
+        <label class="visually-hidden" for="composer-input">Message</label>
+        <textarea
+          id="composer-input"
+          x-model="$store.stu.chat.draft"
+          placeholder="Chat backend is not connected yet."
+          rows="3"
+        ></textarea>
+        <button type="submit" class="btn btn--primary" :disabled="!$store.stu.canSend()">Send</button>
+      </form>
+    </main>
+
+    <aside class="pane telemetry-pane" aria-label="Telemetry">
+      <header class="pane-header telemetry-header">
+        <div class="pane-title">
+          <h2>Telemetry</h2>
+          <p class="pane-subtitle">Live control-loop and daemon status.</p>
+        </div>
+
+        <button
+          type="button"
+          class="icon-button telemetry-close"
+          @click="$store.stu.toggleTelemetry()"
+          aria-label="Close telemetry"
+        >
+          ×
+        </button>
+      </header>
+
+      <div class="telemetry-grid">
+        <template x-for="card in $store.stu.telemetryCards" :key="card.id">
+          <article class="card" :class="`card--${card.tone}`">
+            <header class="card-header">
+              <h3 x-text="card.title"></h3>
+              <span class="card-badge" x-text="card.badge"></span>
+            </header>
+            <p x-text="card.body"></p>
+          </article>
+        </template>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast-region" role="status" aria-live="polite">
+    <template x-for="toast in $store.stu.toasts" :key="toast.id">
+      <div class="toast" :class="`toast--${toast.tone}`" x-text="toast.message"></div>
+    </template>
+  </div>
+
+  <noscript>
+    <div class="system-warning">JavaScript is required for Project Stu UI.</div>
+  </noscript>
+</body>
+</html>

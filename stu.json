@@ -1,0 +1,103 @@
+{
+  "app": {
+    "name": "Project Stu",
+    "version": "3.0.0",
+    "environment": "local",
+    "log_level": "INFO",
+    "log_format": "<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    "log_filename": "stu.log",
+    "default_project_id": "default"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8300,
+    "api_prefix": "/api/v1",
+    "static_dir": "static",
+    "static_mount_path": "/",
+    "cors_enabled": false,
+    "cors_origins": []
+  },
+  "workspace": {
+    "root": "workspace",
+    "projects_dir": "projects",
+    "memory_dir": "memory",
+    "archive_dir": "archive",
+    "vectors_dir": "vectors",
+    "models_dir": "models",
+    "logs_dir": "logs",
+    "runtime_dir": "runtime",
+    "tmp_dir": "tmp",
+    "artifacts_dir": "artifacts",
+    "mcp_dir": "mcp",
+    "fail_on_symlink_escape": true
+  },
+  "memory": {
+    "l1_max_entries": 1000,
+    "l2_subdir": "l2",
+    "l3_sqlite_filename": "archive.sqlite3",
+    "vector_store_subdir": "lancedb"
+  },
+  "execution": {
+    "loop_state_filename": "loop_state.json",
+    "max_iterations": 32,
+    "crash_recovery_debounce_seconds": 2.0,
+    "phase_timeout_seconds": 300.0
+  },
+  "tools": {
+    "enabled": true,
+    "default_timeout_seconds": 60.0,
+    "allow_network": false,
+    "max_output_bytes": 1048576
+  },
+  "mcp": {
+    "enabled": false,
+    "connection_timeout_seconds": 30.0,
+    "strict_schema_validation": true,
+    "allow_local_stdio": true
+  },
+  "daemons": {
+    "telemetry": {
+      "enabled": false,
+      "interval_seconds": 5.0,
+      "priority": "high"
+    },
+    "maintenance": {
+      "enabled": false,
+      "interval_seconds": 900.0,
+      "priority": "high"
+    },
+    "reporting": {
+      "enabled": false,
+      "interval_seconds": 3600.0,
+      "priority": "low"
+    }
+  },
+  "security": {
+    "enable_guardrails": false,
+    "enable_skill_sanitizer": false,
+    "egress_allowlist": [],
+    "forbidden_path_patterns": [
+      "**/.env",
+      "**/.ssh/**",
+      "**/.aws/**"
+    ]
+  },
+  "ui": {
+    "default_active_view": "chat",
+    "default_nav_collapsed": false,
+    "default_telemetry_visible": true,
+    "theme": "dark"
+  },
+  "llm": {
+    "provider": "local",
+    "model": "local-default",
+    "rate_limit": {
+      "enabled": true,
+      "min_interval_seconds": 2.0,
+      "max_concurrency": 1,
+      "max_queue_wait_seconds": 300.0,
+      "fail_on_timeout": false,
+      "telemetry_events": true
+    }
+  }
+}
