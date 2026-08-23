@@ -50,6 +50,15 @@ class MemoryEntry(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class PlanStep(BaseModel):
+    id: str
+    description: str
+    tool_name: str | None = None
+    args: dict[str, Any] = Field(default_factory=dict)
+    status: str = "pending"
+    result: str | None = None
+
+
 class LoopState(BaseModel):
     loop_id: str
     project_id: str
@@ -71,6 +80,24 @@ class ToolDescriptor(BaseModel):
     description: str
     input_schema: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
+
+
+class ToolInvokeRequest(BaseModel):
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolInvokeResponse(BaseModel):
+    tool_name: str
+    status: ToolExecutionStatus
+    output: Any | None = None
+    error: str | None = None
+    duration_ms: float = 0.0
+
+
+class ToolSearchResult(BaseModel):
+    tool: ToolDescriptor
+    score: float | None = None
 
 
 class ToolInvocationRequest(BaseModel):
@@ -248,15 +275,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     message: ChatMessage
     project_id: str
-
-
-class PlanStep(BaseModel):
-    id: str
-    description: str
-    tool_name: str | None = None
-    args: dict[str, Any] = Field(default_factory=dict)
-    status: str = "pending"
-    result: str | None = None
 
 
 class ExecutionStartRequest(BaseModel):

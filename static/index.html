@@ -6,6 +6,7 @@
   <title>Project Stu v3.0</title>
 
   <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles-tools.css">
 
   <script src="/static/vendor/alpine.min.js" defer></script>
   <script src="/static/app.js" defer></script>
@@ -21,7 +22,7 @@
     'telemetry-visible': $store.stu.telemetryVisible
   }"
 >
-  <a class="skip-link" href="#chat-pane">Skip to chat</a>
+  <a class="skip-link" href="#chat-pane">Skip to main</a>
 
   <div id="alpine-missing-warning" class="system-warning" hidden>
     Alpine.js is missing. Run <code>uv run python scripts/vendor_alpine.py</code> and reload.
@@ -186,7 +187,7 @@
               </header>
               <p><strong>Goal:</strong> <span x-text="$store.stu.workbench.state.goal"></span></p>
               <p><strong>Phase:</strong> <span x-text="$store.stu.workbench.state.current_phase"></span></p>
-              
+
               <template x-if="$store.stu.workbench.state.error">
                 <p class="error-text" x-text="$store.stu.workbench.state.error"></p>
               </template>
@@ -270,6 +271,88 @@
             </article>
           </template>
         </section>
+      </div>
+
+      <!-- Tools View -->
+      <div x-show="$store.stu.activeView === 'tools'" class="view-container" x-cloak>
+        <header class="pane-header">
+          <button type="button" class="icon-button mobile-nav-toggle" @click="$store.stu.openMobileNav()" aria-label="Open navigation">≡</button>
+          <div class="pane-title">
+            <h1>Tools</h1>
+            <p class="pane-subtitle">Universal tool catalog and native tool execution.</p>
+          </div>
+        </header>
+
+        <div class="tools-toolbar">
+          <input
+            type="text"
+            class="memory-search"
+            placeholder="Search tools..."
+            x-model="$store.stu.tools.searchQuery"
+            @input.debounce.300ms="$store.stu.fetchTools()"
+          >
+        </div>
+
+        <div class="tools-layout">
+          <div class="tools-list">
+            <template x-if="$store.stu.tools.loading">
+              <div class="card card--primary"><p>Loading tools...</p></div>
+            </template>
+
+            <template x-for="tool in $store.stu.tools.entries" :key="tool.name">
+              <button
+                type="button"
+                class="card tool-list-item"
+                :class="{ active: $store.stu.tools.selected?.name === tool.name }"
+                @click="$store.stu.selectTool(tool)"
+              >
+                <div class="tool-list-top">
+                  <strong x-text="tool.name"></strong>
+                  <span class="safety-badge" :class="`safety-badge--${tool.safety_level}`" x-text="tool.safety_level"></span>
+                </div>
+                <p class="tool-desc" x-text="tool.description"></p>
+              </button>
+            </template>
+          </div>
+
+          <div class="tool-detail">
+            <template x-if="$store.stu.tools.selected">
+              <article class="card card--primary">
+                <header class="card-header">
+                  <h3 x-text="$store.stu.tools.selected.name"></h3>
+                  <span class="safety-badge" :class="`safety-badge--${$store.stu.tools.selected.safety_level}`" x-text="$store.stu.tools.selected.safety_level"></span>
+                </header>
+
+                <p x-text="$store.stu.tools.selected.description"></p>
+
+                <label class="project-label" for="tool-args">Arguments JSON</label>
+                <textarea
+                  id="tool-args"
+                  class="tool-args"
+                  x-model="$store.stu.tools.argsDraft"
+                ></textarea>
+
+                <div class="hitl-actions">
+                  <button
+                    type="button"
+                    class="btn btn--primary"
+                    @click="$store.stu.invokeTool()"
+                    :disabled="$store.stu.tools.invoking"
+                  >
+                    Invoke
+                  </button>
+                </div>
+
+                <template x-if="$store.stu.tools.result">
+                  <div>
+                    <h4>Result</h4>
+                    <pre class="tool-result" x-text="JSON.stringify($store.stu.tools.result, null, 2)"></pre>
+                  </div>
+                </template>
+              </article>
+            </template>
+          </div>
+        </div>
       </div>
     </main>
 

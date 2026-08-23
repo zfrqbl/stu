@@ -63,6 +63,41 @@
     return response.json();
   }
 
+  function defaultArgsForTool(name) {
+    switch (name) {
+      case "memory_create":
+        return {
+          title: "New memory",
+          content: "Created from the Tools UI.",
+          tags: ["ui"],
+        };
+      case "memory_search":
+        return {
+          query: "",
+          limit: 10,
+        };
+      case "memory_get":
+        return {
+          memory_id: "",
+        };
+      case "workspace_list":
+        return {
+          path: "",
+        };
+      case "workspace_read":
+        return {
+          path: "project.json",
+        };
+      case "workspace_write":
+        return {
+          path: "note.txt",
+          content: "Hello from Project Stu.",
+        };
+      default:
+        return {};
+    }
+  }
+
   function createStuStore() {
     return {
       initialized: false,
@@ -128,6 +163,7 @@
 
       toasts: [],
       showAddMemory: false,
+
       memory: {
         loading: false,
         entries: [],
@@ -142,6 +178,16 @@
         polling: null,
       },
 
+      tools: {
+        loading: false,
+        entries: [],
+        searchQuery: "",
+        selected: null,
+        argsDraft: "{}",
+        invoking: false,
+        result: null,
+      },
+
       init() {
         if (this.initialized) {
           return;
@@ -150,14 +196,21 @@
         this.applyPreferences();
         this.fetchAll().then(() => {
           this.initialized = true;
+
           if (this.activeView === "memory") {
             this.fetchMemories();
           }
+
           if (this.activeView === "chat") {
             this.fetchChatHistory();
           }
+
           if (this.activeView === "workbench") {
             this.startWorkbenchPolling();
+          }
+
+          if (this.activeView === "tools") {
+            this.fetchTools();
           }
         });
       },
@@ -270,13 +323,19 @@
         if (view === "memory") {
           this.fetchMemories();
         }
+
         if (view === "chat") {
           this.fetchChatHistory();
         }
+
         if (view === "workbench") {
           this.startWorkbenchPolling();
         } else {
           this.stopWorkbenchPolling();
+        }
+
+        if (view === "tools") {
+          this.fetchTools();
         }
       },
 
@@ -399,8 +458,6 @@
         }
       },
 
-      // --- Workbench Methods ---
-
       startWorkbenchPolling() {
         this.stopWorkbenchPolling();
         this.fetchWorkbenchStatus();
@@ -469,6 +526,87 @@
           this.fetchWorkbenchStatus();
         } catch (e) {
           this.pushToast("Failed to reject execution.", "error");
+        }
+      },
+
+      async fetchTools() {
+        this.tools.loading = true;
+        try {
+          const query = this.tools.searchQuery.trim();
+
+          if (query) {
+            const results = await fetchJson(
+              `${this.apiPrefix}/tools/search?query=${encodeURIComponent(query)}`
+            );
+            this.tools.entries = results.map((r) => r.tool);
+          } else {
+            this.tools.entries = await fetchJson(`${this.apiPrefix}/tools`);
+          }
+
+          if (this.tools.entries.length === 0) {
+            this.tools.selected = null;
+            this.tools.argsDraft = "{}";
+            return;
+          }
+
+          const stillSelected = this.tools.selected &&
+            this.tools.entries.some((t) => t.name === this.tools.selected.name);
+
+          if (!stillSelected) {
+            this.selectTool(this.tools.entries[0]);
+          }
+        } catch (e) {
+          this.pushToast("Failed to load tools.", "error");
+        } finally {
+          this.tools.loading = false;
+        }
+      },
+
+      selectTool(tool) {
+        this.tools.selected = tool;
+        this.tools.result = null;
+        this.tools.argsDraft = JSON.stringify(defaultArgsForTool(tool.name), null, 2);
+      },
+
+      async invokeTool() {
+        if (!this.tools.selected || this.tools.invoking) return;
+
+        let args;
+        try {
+          args = this.tools.argsDraft.trim()
+            ? JSON.parse(this.tools.argsDraft)
+            : {};
+        } catch {
+          this.pushToast("Arguments must be valid JSON.", "warning");
+          return;
+        }
+
+        this.tools.invoking = true;
+        this.tools.result = null;
+
+        try {
+          const data = await fetchJson(
+            `${this.apiPrefix}/projects/${this.currentProjectId}/tools/invoke`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                tool_name: this.tools.selected.name,
+                arguments: args,
+              }),
+            }
+          );
+
+          this.tools.result = data;
+
+          if (data.status === "success") {
+            this.pushToast("Tool executed successfully.", "safe");
+          } else {
+            this.pushToast(`Tool execution failed: ${data.error || data.status}`, "error");
+          }
+        } catch (e) {
+          this.pushToast("Failed to invoke tool.", "error");
+        } finally {
+          this.tools.invoking = false;
         }
       },
     };

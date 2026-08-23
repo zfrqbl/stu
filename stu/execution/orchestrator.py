@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from loguru import logger
 
-from ..models import LoopState, LoopStatus
-from ..constants import LoopPhase
-from .state_manager import StateManager
-from .phases import PHASE_HANDLERS
+from ..constants import LoopPhase, LoopStatus
 from ..llm.gateway import LLMGateway
 from ..memory.service import MemoryService
+from ..models import LoopState
+from .phases import PHASE_HANDLERS, ExecutionServices
+from .state_manager import StateManager
+from ..tools.executor import ToolExecutor
 
 
 class Orchestrator:
@@ -21,10 +24,21 @@ class Orchestrator:
         state_manager: StateManager,
         llm_gateway: LLMGateway,
         memory_service: MemoryService,
+        tool_executor: ToolExecutor | None = None,
+        project_service: Any | None = None,
+        config: Any | None = None,
+        workspace_root: Path | None = None,
     ):
         self.state_manager = state_manager
-        self.llm = llm_gateway
-        self.memory = memory_service
+        self.services = ExecutionServices(
+            llm=llm_gateway,
+            memory=memory_service,
+            executor=tool_executor,
+            project_service=project_service,
+            state_manager=state_manager,
+            config=config,
+            workspace_root=workspace_root,
+        )
 
     async def start_loop(self, project_id: str, goal: str) -> LoopState:
         loop_id = str(uuid4())
@@ -50,7 +64,7 @@ class Orchestrator:
                 break
 
             try:
-                state, should_yield = await handler(state, self.llm, self.memory)
+                state, should_yield = await handler(state, self.services)
                 self.state_manager.save_state(state)
                 if should_yield:
                     break

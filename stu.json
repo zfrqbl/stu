@@ -56,7 +56,69 @@
     "enabled": true,
     "default_timeout_seconds": 60.0,
     "allow_network": false,
-    "max_output_bytes": 1048576
+    "max_output_bytes": 1048576,
+    "write_subdir": "artifacts",
+    "core_fallback": [
+      "memory_create",
+      "memory_search",
+      "project_get",
+      "system_status"
+    ],
+    "catalog": [
+      {
+        "name": "memory_create",
+        "description": "Create a project memory entry.",
+        "safety_level": "safe",
+        "enabled": true
+      },
+      {
+        "name": "memory_search",
+        "description": "Search project memory entries.",
+        "safety_level": "safe",
+        "enabled": true
+      },
+      {
+        "name": "memory_get",
+        "description": "Get one project memory entry by ID.",
+        "safety_level": "safe",
+        "enabled": true
+      },
+      {
+        "name": "project_get",
+        "description": "Get metadata for the active project.",
+        "safety_level": "safe",
+        "enabled": true
+      },
+      {
+        "name": "workspace_list",
+        "description": "List files inside the project workspace.",
+        "safety_level": "safe",
+        "enabled": true
+      },
+      {
+        "name": "workspace_read",
+        "description": "Read a text file inside the project workspace.",
+        "safety_level": "safe",
+        "enabled": true
+      },
+      {
+        "name": "workspace_write",
+        "description": "Write a text file into the project artifacts directory.",
+        "safety_level": "moderate",
+        "enabled": true
+      },
+      {
+        "name": "system_status",
+        "description": "Read current system and loop status.",
+        "safety_level": "safe",
+        "enabled": true
+      }
+    ],
+    "rag": {
+      "enabled": false,
+      "top_k": 5,
+      "vector_subdir": "tools"
+    }
   },
   "mcp": {
     "enabled": false,
@@ -65,15 +127,31 @@
     "allow_local_stdio": true
   },
   "daemons": {
-    "telemetry": { "enabled": false, "interval_seconds": 5.0, "priority": "high" },
-    "maintenance": { "enabled": false, "interval_seconds": 900.0, "priority": "high" },
-    "reporting": { "enabled": false, "interval_seconds": 3600.0, "priority": "low" }
+    "telemetry": {
+      "enabled": false,
+      "interval_seconds": 5.0,
+      "priority": "high"
+    },
+    "maintenance": {
+      "enabled": false,
+      "interval_seconds": 900.0,
+      "priority": "high"
+    },
+    "reporting": {
+      "enabled": false,
+      "interval_seconds": 3600.0,
+      "priority": "low"
+    }
   },
   "security": {
     "enable_guardrails": false,
     "enable_skill_sanitizer": false,
     "egress_allowlist": [],
-    "forbidden_path_patterns": ["**/.env", "**/.ssh/**", "**/.aws/**"]
+    "forbidden_path_patterns": [
+      "**/.env",
+      "**/.ssh/**",
+      "**/.aws/**"
+    ]
   },
   "ui": {
     "default_active_view": "chat",

@@ -6,10 +6,17 @@ import json
 import os
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .constants import DaemonPriority, Environment, LogLevel, UIView
+from .constants import DaemonPriority, Environment, LogLevel, ToolSafetyLevel, UIView
 
 
 class StrictModel(BaseModel):
@@ -95,11 +102,57 @@ class ExecutionConfig(StrictModel):
     phase_timeout_seconds: float = Field(..., gt=0)
 
 
+class ToolCatalogEntry(StrictModel):
+    name: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    description: str
+    safety_level: ToolSafetyLevel
+    enabled: bool
+
+
+class ToolRagConfig(StrictModel):
+    enabled: bool
+    top_k: int = Field(..., ge=1, le=25)
+    vector_subdir: str
+
+    @field_validator("vector_subdir")
+    @classmethod
+    def validate_vector_subdir(cls, value: str) -> str:
+        if Path(value).is_absolute():
+            raise ValueError("tools.rag.vector_subdir must be relative")
+        return value
+
+
 class ToolsConfig(StrictModel):
     enabled: bool
     default_timeout_seconds: float = Field(..., gt=0)
     allow_network: bool
     max_output_bytes: int = Field(..., ge=0)
+    write_subdir: str
+    core_fallback: list[str]
+    catalog: list[ToolCatalogEntry]
+    rag: ToolRagConfig
+
+    @field_validator("write_subdir")
+    @classmethod
+    def validate_write_subdir(cls, value: str) -> str:
+        if Path(value).is_absolute():
+            raise ValueError("tools.write_subdir must be relative")
+        return value
+
+    @model_validator(mode="after")
+    def validate_catalog(self) -> "ToolsConfig":
+        names = [entry.name for entry in self.catalog]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate tool names found in tools.catalog")
+
+        name_set = set(names)
+        for fallback_name in self.core_fallback:
+            if fallback_name not in name_set:
+                raise ValueError(
+                    f"tools.core_fallback contains unknown tool: {fallback_name}"
+                )
+
+        return self
 
 
 class McpConfig(StrictModel):
@@ -192,6 +245,7 @@ class SecretsConfig(BaseSettings):
         env_prefix="STU_",
         extra="ignore",
     )
+
     llm_api_key: SecretStr | None = None
     llm_base_url: str | None = None
     mcp_token: SecretStr | None = None
@@ -212,6 +266,7 @@ def load_app_config(config_path: Path | None = None) -> AppConfig:
             f"Configuration file not found: {path}. "
             "Create stu.json or set STU_CONFIG_PATH."
         )
+
     raw = path.read_text(encoding="utf-8")
     data = json.loads(raw)
     return AppConfig.model_validate(data)

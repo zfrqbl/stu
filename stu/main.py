@@ -12,19 +12,22 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from .api import chat, execution, memory, projects, tools
+from .chat.service import ChatService
 from .config import AppConfig, load_app_config, load_secrets
 from .constants import HealthStatusValue
-from .llm.rate_limiter import LLMRateLimiter
-from .llm.gateway import LLMGateway
-from .logging import setup_logging
-from .models import HealthStatus, PublicAppInfo, PublicConfig, PublicRateLimit, PublicUiConfig
-from .workspace import bootstrap_workspace
-from .projects.service import ProjectService
-from .memory.service import MemoryService
-from .chat.service import ChatService
-from .execution.state_manager import StateManager
 from .execution.orchestrator import Orchestrator
-from .api import projects, memory, chat, execution
+from .execution.state_manager import StateManager
+from .llm.gateway import LLMGateway
+from .llm.rate_limiter import LLMRateLimiter
+from .logging import setup_logging
+from .memory.service import MemoryService
+from .models import HealthStatus, PublicAppInfo, PublicConfig, PublicRateLimit, PublicUiConfig
+from .projects.service import ProjectService
+from .tools.catalog import ToolCatalog
+from .tools.executor import ToolExecutor
+from .tools.rag import ToolRagService
+from .workspace import bootstrap_workspace
 
 REQUIRED_STATIC_FILES = ("index.html", "styles.css", "app.js")
 
@@ -81,11 +84,36 @@ def create_app(config_path: Path | None = None) -> FastAPI:
 
         rate_limiter = LLMRateLimiter(config.llm.rate_limit)
         llm_gateway = LLMGateway(config.llm, rate_limiter)
+
         project_service = ProjectService(manifest.root, config)
         memory_service = MemoryService(manifest.root, config, manifest.models)
         chat_service = ChatService(config, memory_service, llm_gateway)
+
         state_manager = StateManager(manifest.runtime, config)
-        orchestrator = Orchestrator(state_manager, llm_gateway, memory_service)
+        recovered_state = state_manager.check_crash_recovery()
+        if recovered_state:
+            logger.info(f"Crash recovery found resumable loop: {recovered_state.loop_id}")
+
+        tool_catalog = ToolCatalog(config.tools)
+        tool_rag = ToolRagService(
+            catalog=tool_catalog,
+            tools_config=config.tools,
+            embedding_config=config.memory.embedding,
+            models_dir=manifest.models,
+        )
+        tool_rag.prepare()
+
+        tool_executor = ToolExecutor(tool_catalog, config.tools)
+
+        orchestrator = Orchestrator(
+            state_manager=state_manager,
+            llm_gateway=llm_gateway,
+            memory_service=memory_service,
+            tool_executor=tool_executor,
+            project_service=project_service,
+            config=config,
+            workspace_root=manifest.root,
+        )
 
         app.state.config = config
         app.state.secrets = secrets
@@ -96,6 +124,9 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         app.state.memory_service = memory_service
         app.state.chat_service = chat_service
         app.state.state_manager = state_manager
+        app.state.tool_catalog = tool_catalog
+        app.state.tool_rag = tool_rag
+        app.state.tool_executor = tool_executor
         app.state.orchestrator = orchestrator
         app.state.workspace_ready = True
 
@@ -127,6 +158,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
     app.include_router(memory.router, prefix=config.server.api_prefix)
     app.include_router(chat.router, prefix=config.server.api_prefix)
     app.include_router(execution.router, prefix=config.server.api_prefix)
+    app.include_router(tools.router, prefix=config.server.api_prefix)
 
     @app.get(build_api_path(config.server.api_prefix, "health"), response_model=HealthStatus)
     async def health() -> HealthStatus:
@@ -137,7 +169,10 @@ def create_app(config_path: Path | None = None) -> FastAPI:
             timestamp=datetime.now(timezone.utc),
         )
 
-    @app.get(build_api_path(config.server.api_prefix, "config/public"), response_model=PublicConfig)
+    @app.get(
+        build_api_path(config.server.api_prefix, "config/public"),
+        response_model=PublicConfig,
+    )
     async def public_config() -> PublicConfig:
         return PublicConfig(
             app=PublicAppInfo(
