@@ -13,16 +13,13 @@
     "port": 8300,
     "api_prefix": "/api/v1",
     "static_dir": "static",
-    "static_mount_path": "/",
+    "static_mount_path": "/static",
     "cors_enabled": false,
     "cors_origins": []
   },
   "workspace": {
     "root": "workspace",
     "projects_dir": "projects",
-    "memory_dir": "memory",
-    "archive_dir": "archive",
-    "vectors_dir": "vectors",
     "models_dir": "models",
     "logs_dir": "logs",
     "runtime_dir": "runtime",
@@ -33,9 +30,21 @@
   },
   "memory": {
     "l1_max_entries": 1000,
-    "l2_subdir": "l2",
-    "l3_sqlite_filename": "archive.sqlite3",
-    "vector_store_subdir": "lancedb"
+    "project_memory_dir": "memory",
+    "project_l2_dir": "l2",
+    "project_archive_dir": "archive",
+    "project_vectors_dir": "vectors",
+    "sqlite_filename": "memory.sqlite3",
+    "rag": {
+      "enabled": false,
+      "top_k": 5
+    },
+    "embedding": {
+      "provider": "sentence-transformers",
+      "model": "all-MiniLM-L6-v2",
+      "device": "cpu",
+      "batch_size": 8
+    }
   },
   "execution": {
     "loop_state_filename": "loop_state.json",
@@ -56,31 +65,15 @@
     "allow_local_stdio": true
   },
   "daemons": {
-    "telemetry": {
-      "enabled": false,
-      "interval_seconds": 5.0,
-      "priority": "high"
-    },
-    "maintenance": {
-      "enabled": false,
-      "interval_seconds": 900.0,
-      "priority": "high"
-    },
-    "reporting": {
-      "enabled": false,
-      "interval_seconds": 3600.0,
-      "priority": "low"
-    }
+    "telemetry": { "enabled": false, "interval_seconds": 5.0, "priority": "high" },
+    "maintenance": { "enabled": false, "interval_seconds": 900.0, "priority": "high" },
+    "reporting": { "enabled": false, "interval_seconds": 3600.0, "priority": "low" }
   },
   "security": {
     "enable_guardrails": false,
     "enable_skill_sanitizer": false,
     "egress_allowlist": [],
-    "forbidden_path_patterns": [
-      "**/.env",
-      "**/.ssh/**",
-      "**/.aws/**"
-    ]
+    "forbidden_path_patterns": ["**/.env", "**/.ssh/**", "**/.aws/**"]
   },
   "ui": {
     "default_active_view": "chat",

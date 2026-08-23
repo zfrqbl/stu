@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
@@ -16,22 +16,19 @@ from .config import AppConfig, load_app_config, load_secrets
 from .constants import HealthStatusValue
 from .llm.rate_limiter import LLMRateLimiter
 from .logging import setup_logging
-from .models import (
-    HealthStatus,
-    PublicAppInfo,
-    PublicConfig,
-    PublicRateLimit,
-    PublicUiConfig,
-)
+from .models import HealthStatus, PublicAppInfo, PublicConfig, PublicRateLimit, PublicUiConfig
 from .workspace import bootstrap_workspace
+from .projects.service import ProjectService
+from .memory.service import MemoryService
+from .api import projects, memory
+
+REQUIRED_STATIC_FILES = ("index.html", "styles.css", "app.js")
 
 
 def build_api_path(prefix: str, route: str) -> str:
     prefix = prefix.rstrip("/")
     route = route.lstrip("/")
-    if not prefix:
-        return f"/{route}"
-    return f"{prefix}/{route}"
+    return f"{prefix}/{route}" if prefix else f"/{route}"
 
 
 def resolve_static_dir(static_dir: str) -> Path:
@@ -45,13 +42,33 @@ def resolve_static_dir(static_dir: str) -> Path:
         raise ValueError(f"Static directory path exists but is not a directory: {path}")
 
     path.mkdir(parents=True, exist_ok=True)
+
+    missing = [
+        required_file
+        for required_file in REQUIRED_STATIC_FILES
+        if not (path / required_file).is_file()
+    ]
+
+    if missing:
+        raise FileNotFoundError(
+            "Missing required static files: "
+            f"{', '.join(missing)} in {path}. "
+            "Ensure Milestone 1 frontend files were saved correctly."
+        )
+
     return path
 
 
-def create_app() -> FastAPI:
-    config: AppConfig = load_app_config()
+def create_app(config_path: Path | None = None) -> FastAPI:
+    config: AppConfig = load_app_config(config_path)
     secrets = load_secrets()
     static_dir = resolve_static_dir(config.server.static_dir)
+
+    if config.server.static_mount_path == "/":
+        raise ValueError(
+            "static_mount_path must not be '/'. "
+            "Use '/static' in stu.json for explicit static asset routing."
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -59,11 +76,15 @@ def create_app() -> FastAPI:
         setup_logging(config, manifest.logs)
 
         rate_limiter = LLMRateLimiter(config.llm.rate_limit)
+        project_service = ProjectService(manifest.root, config)
+        memory_service = MemoryService(manifest.root, config, manifest.models)
 
         app.state.config = config
         app.state.secrets = secrets
         app.state.workspace = manifest
         app.state.rate_limiter = rate_limiter
+        app.state.project_service = project_service
+        app.state.memory_service = memory_service
         app.state.workspace_ready = True
 
         logger.info("Project Stu API startup complete.")
@@ -90,10 +111,10 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
 
-    health_path = build_api_path(config.server.api_prefix, "health")
-    public_config_path = build_api_path(config.server.api_prefix, "config/public")
+    app.include_router(projects.router, prefix=config.server.api_prefix)
+    app.include_router(memory.router, prefix=config.server.api_prefix)
 
-    @app.get(health_path, response_model=HealthStatus)
+    @app.get(build_api_path(config.server.api_prefix, "health"), response_model=HealthStatus)
     async def health() -> HealthStatus:
         return HealthStatus(
             status=HealthStatusValue.OK,
@@ -102,7 +123,7 @@ def create_app() -> FastAPI:
             timestamp=datetime.now(timezone.utc),
         )
 
-    @app.get(public_config_path, response_model=PublicConfig)
+    @app.get(build_api_path(config.server.api_prefix, "config/public"), response_model=PublicConfig)
     async def public_config() -> PublicConfig:
         return PublicConfig(
             app=PublicAppInfo(
@@ -124,22 +145,19 @@ def create_app() -> FastAPI:
             ),
         )
 
-    if config.server.static_mount_path == "/":
-        app.mount(
-            "/",
-            StaticFiles(directory=static_dir, html=True),
-            name="static",
-        )
-    else:
-        @app.get("/", include_in_schema=False)
-        async def root() -> FileResponse:
-            return FileResponse(static_dir / "index.html")
+    @app.get("/", include_in_schema=False)
+    async def root() -> FileResponse:
+        return FileResponse(static_dir / "index.html")
 
-        app.mount(
-            config.server.static_mount_path,
-            StaticFiles(directory=static_dir, html=True),
-            name="static",
-        )
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> Response:
+        return Response(status_code=204)
+
+    app.mount(
+        config.server.static_mount_path,
+        StaticFiles(directory=static_dir, html=False),
+        name="static",
+    )
 
     return app
 

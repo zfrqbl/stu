@@ -100,49 +100,94 @@
       aria-hidden="true"
     ></div>
 
-    <main id="chat-pane" class="pane chat-pane" tabindex="-1">
-      <header class="pane-header">
-        <button
-          type="button"
-          class="icon-button mobile-nav-toggle"
-          @click="$store.stu.openMobileNav()"
-          aria-label="Open navigation"
-        >
-          ≡
-        </button>
+        <main id="chat-pane" class="pane chat-pane" tabindex="-1">
+      <!-- Chat View -->
+      <div x-show="$store.stu.activeView === 'chat'" class="view-container">
+        <header class="pane-header">
+          <button type="button" class="icon-button mobile-nav-toggle" @click="$store.stu.openMobileNav()" aria-label="Open navigation">≡</button>
+          <div class="pane-title">
+            <h1>Chat</h1>
+            <p class="pane-subtitle">Milestone 1 shell. Agentic execution arrives in Milestone 3.</p>
+          </div>
+          <div class="pane-actions">
+            <span class="health-pill" :class="$store.stu.healthDotClass()" x-text="$store.stu.healthLabel()"></span>
+            <button type="button" class="btn" @click="$store.stu.toggleTelemetry()">Telemetry</button>
+          </div>
+        </header>
+        <section class="chat-messages" aria-live="polite">
+          <template x-for="message in $store.stu.chat.messages" :key="message.id">
+            <article class="chat-message" :class="`chat-message--${message.role}`">
+              <span class="chat-role" x-text="message.role"></span>
+              <p x-text="message.content"></p>
+            </article>
+          </template>
+        </section>
+        <form class="composer" @submit.prevent="$store.stu.sendDraft()">
+          <label class="visually-hidden" for="composer-input">Message</label>
+          <textarea id="composer-input" x-model="$store.stu.chat.draft" placeholder="Chat backend is not connected yet." rows="3"></textarea>
+          <button type="submit" class="btn btn--primary" :disabled="!$store.stu.canSend()">Send</button>
+        </form>
+      </div>
 
-        <div class="pane-title">
-          <h1>Chat</h1>
-          <p class="pane-subtitle">Milestone 1 shell. Agentic execution arrives in Milestone 2.</p>
+      <!-- Memory View -->
+      <div x-show="$store.stu.activeView === 'memory'" class="view-container" x-cloak>
+        <header class="pane-header">
+          <button type="button" class="icon-button mobile-nav-toggle" @click="$store.stu.openMobileNav()" aria-label="Open navigation">≡</button>
+          <div class="pane-title">
+            <h1>Memory</h1>
+            <p class="pane-subtitle">Project-scoped L2 Markdown & L3 SQLite archive.</p>
+          </div>
+          <div class="pane-actions">
+             <button type="button" class="btn" @click="$store.stu.toggleTelemetry()">Telemetry</button>
+          </div>
+        </header>
+
+        <div class="memory-toolbar">
+          <input type="text" class="memory-search" placeholder="Search memories..." x-model="$store.stu.memory.searchQuery" @input.debounce.300ms="$store.stu.fetchMemories()">
+          <button type="button" class="btn btn--primary" @click="$store.stu.showAddMemory = true">+ Add Memory</button>
         </div>
 
-        <div class="pane-actions">
-          <span class="health-pill" :class="$store.stu.healthDotClass()" x-text="$store.stu.healthLabel()"></span>
-          <button type="button" class="btn" @click="$store.stu.toggleTelemetry()">Telemetry</button>
+        <!-- Add Memory Modal -->
+        <div x-show="$store.stu.showAddMemory" class="modal-backdrop" @click.self="$store.stu.showAddMemory = false">
+          <div class="modal-card">
+            <h3>New Memory Entry</h3>
+            <input type="text" placeholder="Title" x-model="$store.stu.memory.newEntry.title">
+            <input type="text" placeholder="Tags (comma separated)" x-model="$store.stu.memory.newEntry.tagsStr">
+            <textarea placeholder="Content..." rows="5" x-model="$store.stu.memory.newEntry.content"></textarea>
+            <div class="modal-actions">
+              <button type="button" class="btn" @click="$store.stu.showAddMemory = false">Cancel</button>
+              <button type="button" class="btn btn--primary" @click="$store.stu.createMemory()">Save</button>
+            </div>
+          </div>
         </div>
-      </header>
 
-      <section class="chat-messages" aria-live="polite">
-        <template x-for="message in $store.stu.chat.messages" :key="message.id">
-          <article class="chat-message" :class="`chat-message--${message.role}`">
-            <span class="chat-role" x-text="message.role"></span>
-            <p x-text="message.content"></p>
-          </article>
-        </template>
-      </section>
-
-      <form class="composer" @submit.prevent="$store.stu.sendDraft()">
-        <label class="visually-hidden" for="composer-input">Message</label>
-        <textarea
-          id="composer-input"
-          x-model="$store.stu.chat.draft"
-          placeholder="Chat backend is not connected yet."
-          rows="3"
-        ></textarea>
-        <button type="submit" class="btn btn--primary" :disabled="!$store.stu.canSend()">Send</button>
-      </form>
+        <section class="memory-grid">
+          <template x-if="$store.stu.memory.loading">
+            <div class="card card--primary"><p>Loading memories...</p></div>
+          </template>
+          <template x-if="!$store.stu.memory.loading && $store.stu.memory.entries.length === 0">
+            <div class="card card--muted"><p>No memories found. Create your first entry.</p></div>
+          </template>
+          <template x-for="mem in $store.stu.memory.entries" :key="mem.id">
+            <article class="card card--safe memory-card">
+              <header class="card-header">
+                <h3 x-text="mem.title"></h3>
+                <button class="icon-button delete-btn" @click="$store.stu.deleteMemory(mem.id)">×</button>
+              </header>
+              <div class="memory-tags">
+                <template x-for="tag in mem.tags" :key="tag">
+                  <span class="tag" x-text="tag"></span>
+                </template>
+              </div>
+              <p x-text="mem.content"></p>
+              <footer class="card-footer">
+                <small x-text="new Date(mem.created_at).toLocaleString()"></small>
+              </footer>
+            </article>
+          </template>
+        </section>
+      </div>
     </main>
-
     <aside class="pane telemetry-pane" aria-label="Telemetry">
       <header class="pane-header telemetry-header">
         <div class="pane-title">

@@ -42,15 +42,23 @@
     }
   }
 
-  async function fetchJson(url) {
+  async function fetchJson(url, options = {}) {
     const response = await fetch(url, {
       headers: {
         Accept: "application/json",
+        "Content-Type": "application/json",
+        ...options.headers,
       },
+      ...options,
     });
 
     if (!response.ok) {
       throw new Error(`Request failed: ${response.status}`);
+    }
+
+    // Handle 204 No Content for DELETE requests
+    if (response.status === 204) {
+      return null;
     }
 
     return response.json();
@@ -120,12 +128,19 @@
             id: "welcome",
             role: "system",
             content:
-              "Project Stu v3.0 shell online. Chat execution arrives after Milestone 1.",
+              "Project Stu v3.0 shell online. Chat execution arrives after Milestone 3.",
           },
         ],
       },
 
       toasts: [],
+      showAddMemory: false,
+      memory: {
+        loading: false,
+        entries: [],
+        searchQuery: "",
+        newEntry: { title: "", content: "", tagsStr: "" },
+      },
 
       init() {
         if (this.initialized) {
@@ -135,6 +150,10 @@
         this.applyPreferences();
         this.fetchAll().then(() => {
           this.initialized = true;
+          // If the default view is memory, fetch memories immediately
+          if (this.activeView === "memory") {
+            this.fetchMemories();
+          }
         });
       },
 
@@ -260,6 +279,9 @@
         this.activeView = view;
         this.closeMobileNav();
         this.persist();
+        if (view === "memory") {
+          this.fetchMemories();
+        }
       },
 
       canSend() {
@@ -267,7 +289,7 @@
       },
 
       sendDraft() {
-        this.pushToast("Chat execution lands in Milestone 2.", "warning");
+        this.pushToast("Chat execution lands in Milestone 3.", "warning");
       },
 
       pushToast(message, tone = "primary") {
@@ -277,6 +299,53 @@
         setTimeout(() => {
           this.toasts = this.toasts.filter((toast) => toast.id !== id);
         }, 5000);
+      },
+
+      // --- Memory Methods ---
+
+      async fetchMemories() {
+        this.memory.loading = true;
+        try {
+          const params = this.memory.searchQuery ? `?query=${encodeURIComponent(this.memory.searchQuery)}` : "";
+          const data = await fetchJson(`${this.apiPrefix}/projects/${this.currentProjectId}/memory${params}`);
+          this.memory.entries = data;
+        } catch (e) {
+          this.pushToast("Failed to load memories.", "error");
+        } finally {
+          this.memory.loading = false;
+        }
+      },
+
+      async createMemory() {
+        const { title, content, tagsStr } = this.memory.newEntry;
+        if (!title || !content) {
+          this.pushToast("Title and content are required.", "warning");
+          return;
+        }
+        const tags = tagsStr.split(",").map(t => t.trim()).filter(t => t);
+        try {
+          await fetchJson(`${this.apiPrefix}/projects/${this.currentProjectId}/memory`, {
+            method: "POST",
+            body: JSON.stringify({ title, content, tags })
+          });
+          this.showAddMemory = false;
+          this.memory.newEntry = { title: "", content: "", tagsStr: "" };
+          this.pushToast("Memory saved.", "safe");
+          this.fetchMemories();
+        } catch (e) {
+          this.pushToast("Failed to save memory.", "error");
+        }
+      },
+
+      async deleteMemory(id) {
+        if (!confirm("Delete this memory?")) return;
+        try {
+          await fetchJson(`${this.apiPrefix}/projects/${this.currentProjectId}/memory/${id}`, { method: "DELETE" });
+          this.pushToast("Memory deleted.", "safe");
+          this.fetchMemories();
+        } catch (e) {
+          this.pushToast("Failed to delete memory.", "error");
+        }
       },
     };
   }

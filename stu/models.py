@@ -177,3 +177,50 @@ class PublicConfig(BaseModel):
     app: PublicAppInfo
     ui: PublicUiConfig
     llm_rate_limit: PublicRateLimit
+
+
+
+# ... [Keep all existing Milestone 1 models] ...
+
+class ProjectPaths(BaseModel):
+    root: Path
+    memory: Path
+    l2: Path
+    archive: Path
+    vectors: Path
+    vector_store: Path
+    sqlite_db: Path
+    metadata_file: Path
+
+
+class ProjectSummary(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    created_at: datetime
+
+
+class ProjectCreateRequest(BaseModel):
+    id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str | None = None
+
+
+class MemoryCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(..., min_length=1)
+    tags: list[str] = Field(default_factory=list)
+
+
+class MemoryReadResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    content: str
+    tags: list[str]
+    created_at: datetime
+
+
+class MemorySearchResult(BaseModel):
+    memory: MemoryReadResponse
+    score: float | None = None
