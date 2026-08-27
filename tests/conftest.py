@@ -76,3 +76,29 @@ def client(tmp_path):
 
     with TestClient(app) as c:
         yield c
+
+
+    memory = config_data.setdefault("memory", {})
+    memory["lifecycle"] = {
+        "enabled": True,
+        "interval_seconds": 0.1,
+        "scoring_w_recency": 0.3,
+        "scoring_w_frequency": 0.2,
+        "scoring_w_importance": 0.3,
+        "scoring_w_relevance": 0.2,
+        "scoring_decay_half_life_hours": 168.0,
+        "decay_episodic_half_life_hours": 72.0,
+        "decay_semantic_half_life_hours": 720.0,
+        "decay_procedural_half_life_hours": 360.0,
+        "decay_reflection_half_life_hours": 1440.0,
+        "consolidation_enabled": False,
+        "consolidation_min_cluster_size": 3,
+        "consolidation_max_per_cycle": 5,
+        "archival_enabled": False,
+        "archival_score_threshold": 0.15,
+        "pruning_enabled": False,
+        "pruning_critical_score_threshold": 0.05,
+        "pruning_grace_period_hours": 168.0,
+        "reflection_enabled": False,
+        "reflection_trigger_on_loop_completion": False,
+    }

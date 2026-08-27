@@ -16,6 +16,7 @@ from .api import chat, execution, mcp, memory, projects, security, telemetry, to
 from .chat.service import ChatService
 from .config import AppConfig, load_app_config, load_secrets
 from .constants import HealthStatusValue, ToolSafetyLevel
+from .daemons.lifecycle import MemoryLifecycleDaemon
 from .daemons.manager import DaemonManager
 from .daemons.maintenance import MaintenanceDaemon
 from .daemons.reporting import ReportingDaemon
@@ -28,6 +29,7 @@ from .logging import setup_logging
 from .mcp.connection_manager import ConnectionManager
 from .mcp.schema_validator import SchemaValidator
 from .mcp.sandbox_interceptor import SandboxInterceptor
+from .memory.lifecycle import MemoryLifecycleManager
 from .memory.service import MemoryService
 from .models import HealthStatus, PublicAppInfo, PublicConfig, PublicRateLimit, PublicUiConfig
 from .projects.service import ProjectService
@@ -227,9 +229,23 @@ def create_app(config_path: Path | None = None) -> FastAPI:
             project_id=config.app.default_project_id,
         )
 
+        memory_lifecycle_manager = MemoryLifecycleManager(
+            config=config.memory.lifecycle,
+            memory_service=memory_service,
+            llm_gateway=llm_gateway,
+        )
+
+        memory_lifecycle_daemon = MemoryLifecycleDaemon(
+            interval_seconds=config.memory.lifecycle.interval_seconds,
+            enabled=config.memory.lifecycle.enabled,
+            lifecycle_manager=memory_lifecycle_manager,
+            project_id=config.app.default_project_id,
+        )
+
         daemon_manager.register(telemetry_daemon)
         daemon_manager.register(maintenance_daemon)
         daemon_manager.register(reporting_daemon)
+        daemon_manager.register(memory_lifecycle_daemon)
 
         await daemon_manager.start_all()
 
@@ -254,6 +270,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         app.state.mcp_interceptor = mcp_interceptor
         app.state.orchestrator = orchestrator
         app.state.daemon_manager = daemon_manager
+        app.state.memory_lifecycle_manager = memory_lifecycle_manager
         app.state.workspace_ready = True
 
         logger.info("Project Stu API startup complete.")

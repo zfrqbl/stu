@@ -85,6 +85,30 @@ class EmbeddingConfig(StrictModel):
     batch_size: int = Field(..., ge=1)
 
 
+class MemoryLifecycleConfig(StrictModel):
+    enabled: bool = True
+    interval_seconds: float = Field(300.0, gt=0)
+    scoring_w_recency: float = Field(0.3, ge=0, le=1)
+    scoring_w_frequency: float = Field(0.2, ge=0, le=1)
+    scoring_w_importance: float = Field(0.3, ge=0, le=1)
+    scoring_w_relevance: float = Field(0.2, ge=0, le=1)
+    scoring_decay_half_life_hours: float = Field(168.0, gt=0)
+    decay_episodic_half_life_hours: float = Field(72.0, gt=0)
+    decay_semantic_half_life_hours: float = Field(720.0, gt=0)
+    decay_procedural_half_life_hours: float = Field(360.0, gt=0)
+    decay_reflection_half_life_hours: float = Field(1440.0, gt=0)
+    consolidation_enabled: bool = True
+    consolidation_min_cluster_size: int = Field(3, ge=2)
+    consolidation_max_per_cycle: int = Field(5, ge=1)
+    archival_enabled: bool = True
+    archival_score_threshold: float = Field(0.15, ge=0, le=1)
+    pruning_enabled: bool = True
+    pruning_critical_score_threshold: float = Field(0.05, ge=0, le=1)
+    pruning_grace_period_hours: float = Field(168.0, ge=0)
+    reflection_enabled: bool = True
+    reflection_trigger_on_loop_completion: bool = True
+
+
 class MemoryConfig(StrictModel):
     l1_max_entries: int = Field(..., ge=0)
     project_memory_dir: str
@@ -94,6 +118,7 @@ class MemoryConfig(StrictModel):
     sqlite_filename: str
     rag: RagConfig
     embedding: EmbeddingConfig
+    lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
 
 
 class ExecutionConfig(StrictModel):
@@ -156,12 +181,6 @@ class ToolsConfig(StrictModel):
         return self
 
 
-class McpConfig(StrictModel):
-    enabled: bool
-    connection_timeout_seconds: float = Field(..., gt=0)
-    strict_schema_validation: bool
-    allow_local_stdio: bool
-
 class MCPToolConfig(StrictModel):
     name: str = Field(..., pattern=r"^[a-z0-9_]+$")
     description: str
@@ -205,16 +224,16 @@ class McpConfig(StrictModel):
     servers: list[MCPServerConfig] = Field(default_factory=list)
 
 
-class DaemonConfig(StrictModel):
+class DaemonEntryConfig(StrictModel):
     enabled: bool
     interval_seconds: float = Field(..., gt=0)
-    priority: DaemonPriority
+    priority: str = "low"
 
 
 class DaemonsConfig(StrictModel):
-    telemetry: DaemonConfig
-    maintenance: DaemonConfig
-    reporting: DaemonConfig
+    telemetry: DaemonEntryConfig
+    maintenance: DaemonEntryConfig
+    reporting: DaemonEntryConfig
 
 
 class GuardrailPolicyConfig(StrictModel):

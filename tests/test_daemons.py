@@ -36,3 +36,15 @@ def test_websocket_telemetry_endpoint(client):
         ws.send_text("ping")
         response = ws.receive_text()
         assert response == "pong"
+
+def test_daemon_manager_status(client):
+    manager = client.app.state.daemon_manager
+    status = manager.get_status()
+
+    assert len(status) == 4
+
+    names = [d["name"] for d in status]
+    assert "telemetry" in names
+    assert "maintenance" in names
+    assert "reporting" in names
+    assert "memory_lifecycle" in names
