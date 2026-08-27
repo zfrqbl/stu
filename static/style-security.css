@@ -1,0 +1,81 @@
+.security-toolbar {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  padding: 20px;
+}
+
+.security-events {
+  padding: 0 20px 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.security-event {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+}
+
+.security-event-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.security-event-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.security-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  background: var(--surface-3);
+}
+
+.security-decision--allow {
+  color: var(--safe);
+  border-color: color-mix(in srgb, var(--safe) 35%, var(--border));
+}
+
+.security-decision--deny {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 35%, var(--border));
+}
+
+.security-decision--review {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+}
+
+.security-severity--low {
+  color: var(--text-muted);
+}
+
+.security-severity--medium {
+  color: var(--primary);
+}
+
+.security-severity--high {
+  color: var(--warning);
+}
+
+.security-severity--critical {
+  color: var(--error);
+}
