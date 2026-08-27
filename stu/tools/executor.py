@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
 
@@ -84,10 +85,16 @@ class ToolExecutor:
             )
 
         try:
-            raw_output = await asyncio.wait_for(
-                asyncio.to_thread(impl, parsed_args, context),
-                timeout=self.config.default_timeout_seconds,
-            )
+            if inspect.iscoroutinefunction(impl):
+                raw_output = await asyncio.wait_for(
+                    impl(parsed_args, context),
+                    timeout=self.config.default_timeout_seconds,
+                )
+            else:
+                raw_output = await asyncio.wait_for(
+                    asyncio.to_thread(impl, parsed_args, context),
+                    timeout=self.config.default_timeout_seconds,
+                )
         except asyncio.TimeoutError:
             return self._response(
                 tool_name,

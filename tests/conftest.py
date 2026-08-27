@@ -34,6 +34,43 @@ def client(tmp_path):
     security["enable_skill_sanitizer"] = True
     security.setdefault("forbidden_argument_patterns", []).append("TEST_FORBIDDEN")
 
+    # Enable MCP with mock server for tests.
+    mcp = config_data.setdefault("mcp", {})
+    mcp["enabled"] = True
+    mcp.setdefault("allowed_stdio_commands", ["python", "python3", "uvx", "npx"])
+    mcp.setdefault("servers", [
+        {
+            "name": "mock_server",
+            "transport": "mock",
+            "enabled": True,
+            "tools": [
+                {
+                    "name": "echo",
+                    "description": "Echoes back the input message",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "message": {"type": "string", "description": "The message to echo"}
+                        },
+                        "required": ["message"],
+                    },
+                },
+                {
+                    "name": "add",
+                    "description": "Adds two numbers together",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "a": {"type": "number", "description": "First number"},
+                            "b": {"type": "number", "description": "Second number"},
+                        },
+                        "required": ["a", "b"],
+                    },
+                },
+            ],
+        }
+    ])
+
     temp_config_path = tmp_path / "stu.json"
     temp_config_path.write_text(json.dumps(config_data, indent=2), encoding="utf-8")
 

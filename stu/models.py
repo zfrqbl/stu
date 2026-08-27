@@ -291,10 +291,30 @@ class MemorySearchResult(BaseModel):
     score: float | None = None
 
 
+class MCPServerSummary(BaseModel):
+    name: str
+    transport: str
+    enabled: bool
+    status: str
+    tools_count: int
+    last_error: str | None = None
+
+
+class MCPToolInfo(BaseModel):
+    server_name: str
+    tool_name: str
+    full_name: str
+    description: str
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    schema_valid: bool = True
+    schema_error: str | None = None
+
+
 class ChatRole(str, Enum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
+
 
 
 class ChatMessage(BaseModel):

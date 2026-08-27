@@ -1,9 +1,11 @@
-"""Universal Tool Catalog."""
+"""Universal Tool Catalog with dynamic MCP tool registration."""
 
 from __future__ import annotations
 
+from typing import Any, Callable
+
 from ..config import ToolsConfig
-from ..constants import ToolKind
+from ..constants import ToolKind, ToolSafetyLevel
 from ..models import ToolDescriptor
 from .native import NATIVE_TOOL_IMPLS
 
@@ -14,6 +16,9 @@ class ToolCatalog:
         self._entries = {entry.name: entry for entry in config.catalog}
         self._implementations = {}
         self._arg_models = {}
+        self._dynamic_tools: dict[str, ToolDescriptor] = {}
+        self._dynamic_implementations: dict[str, Callable] = {}
+        self._dynamic_arg_models: dict[str, Any] = {}
 
         self._register_native_tools()
         self._validate()
@@ -31,6 +36,39 @@ class ToolCatalog:
     @property
     def core_fallback_names(self) -> list[str]:
         return list(self.config.core_fallback)
+
+    def register_mcp_tool(
+        self,
+        full_name: str,
+        description: str,
+        implementation: Callable,
+        arg_model: Any,
+        safety_level: ToolSafetyLevel = ToolSafetyLevel.MODERATE,
+    ) -> None:
+        if full_name in self._entries or full_name in self._dynamic_tools:
+            raise ValueError(f"Tool '{full_name}' already exists in catalog")
+
+        descriptor = ToolDescriptor(
+            name=full_name,
+            kind=ToolKind.MCP,
+            safety_level=safety_level,
+            description=description,
+            input_schema=arg_model.model_json_schema() if hasattr(arg_model, "model_json_schema") else {},
+            enabled=True,
+        )
+
+        self._dynamic_tools[full_name] = descriptor
+        self._dynamic_implementations[full_name] = implementation
+        self._dynamic_arg_models[full_name] = arg_model
+
+    def unregister_mcp_tools(self, prefix: str = "mcp_") -> None:
+        names_to_remove = [
+            name for name in self._dynamic_tools if name.startswith(prefix)
+        ]
+        for name in names_to_remove:
+            del self._dynamic_tools[name]
+            self._dynamic_implementations.pop(name, None)
+            self._dynamic_arg_models.pop(name, None)
 
     def list_tools(self, include_disabled: bool = True) -> list[ToolDescriptor]:
         descriptors: list[ToolDescriptor] = []
@@ -55,24 +93,29 @@ class ToolCatalog:
                 )
             )
 
+        for name, descriptor in self._dynamic_tools.items():
+            if not include_disabled and not descriptor.enabled:
+                continue
+            descriptors.append(descriptor)
+
         return descriptors
 
     def get_descriptor(self, name: str) -> ToolDescriptor | None:
         entry = self._entries.get(name)
-        if not entry:
-            return None
+        if entry:
+            arg_model = self._arg_models.get(name)
+            input_schema = arg_model.model_json_schema() if arg_model else {}
 
-        arg_model = self._arg_models.get(name)
-        input_schema = arg_model.model_json_schema() if arg_model else {}
+            return ToolDescriptor(
+                name=name,
+                kind=ToolKind.NATIVE,
+                safety_level=entry.safety_level,
+                description=entry.description,
+                input_schema=input_schema,
+                enabled=self.config.enabled and entry.enabled,
+            )
 
-        return ToolDescriptor(
-            name=name,
-            kind=ToolKind.NATIVE,
-            safety_level=entry.safety_level,
-            description=entry.description,
-            input_schema=input_schema,
-            enabled=self.config.enabled and entry.enabled,
-        )
+        return self._dynamic_tools.get(name)
 
     def get_enabled_descriptor(self, name: str) -> ToolDescriptor | None:
         descriptor = self.get_descriptor(name)
@@ -81,7 +124,13 @@ class ToolCatalog:
         return descriptor
 
     def get_implementation(self, name: str):
-        return self._implementations.get(name)
+        impl = self._implementations.get(name)
+        if impl:
+            return impl
+        return self._dynamic_implementations.get(name)
 
     def get_arg_model(self, name: str):
-        return self._arg_models.get(name)
+        model = self._arg_models.get(name)
+        if model:
+            return model
+        return self._dynamic_arg_models.get(name)

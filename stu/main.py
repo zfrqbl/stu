@@ -12,15 +12,18 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from .api import chat, execution, memory, projects, security, tools
+from .api import chat, execution, mcp, memory, projects, security, tools
 from .chat.service import ChatService
 from .config import AppConfig, load_app_config, load_secrets
-from .constants import HealthStatusValue
+from .constants import HealthStatusValue, ToolSafetyLevel
 from .execution.orchestrator import Orchestrator
 from .execution.state_manager import StateManager
 from .llm.gateway import LLMGateway
 from .llm.rate_limiter import LLMRateLimiter
 from .logging import setup_logging
+from .mcp.connection_manager import ConnectionManager
+from .mcp.schema_validator import SchemaValidator
+from .mcp.sandbox_interceptor import SandboxInterceptor
 from .memory.service import MemoryService
 from .models import HealthStatus, PublicAppInfo, PublicConfig, PublicRateLimit, PublicUiConfig
 from .projects.service import ProjectService
@@ -119,6 +122,67 @@ def create_app(config_path: Path | None = None) -> FastAPI:
 
         tool_executor = ToolExecutor(tool_catalog, config.tools, guardrails=guardrails)
 
+        # MCP Protective Integration
+        mcp_schema_validator = SchemaValidator(strict=config.mcp.strict_schema_validation)
+        mcp_interceptor = SandboxInterceptor(guardrails=guardrails)
+        mcp_connection_manager = ConnectionManager(
+            config=config.mcp,
+            schema_validator=mcp_schema_validator,
+            interceptor=mcp_interceptor,
+        )
+
+        await mcp_connection_manager.connect_all()
+
+        # Register MCP tools into the catalog
+        for connection in mcp_connection_manager.get_all_connections():
+            if connection.status != "connected":
+                continue
+            for tool in connection.tools:
+                full_name = f"mcp_{connection.config.name}_{tool.name}"
+                server_name = connection.config.name
+                tool_name = tool.name
+
+                async def mcp_tool_impl(parsed_args, context, _sn=server_name, _tn=tool_name):
+                    args_dict = parsed_args.model_dump() if hasattr(parsed_args, "model_dump") else dict(parsed_args)
+                    result = await mcp_connection_manager.call_tool(
+                        _sn, _tn, args_dict, context.project_id
+                    )
+                    if result.error:
+                        raise ValueError(result.error)
+                    return result.output
+
+                from pydantic import create_model
+
+                schema_properties = tool.input_schema.get("properties", {})
+                required_fields = set(tool.input_schema.get("required", []))
+                field_definitions = {}
+                for prop_name, prop_def in schema_properties.items():
+                    prop_type = prop_def.get("type", "string")
+                    python_type = {
+                        "string": str,
+                        "number": float,
+                        "integer": int,
+                        "boolean": bool,
+                    }.get(prop_type, str)
+
+                    if prop_name in required_fields:
+                        field_definitions[prop_name] = (python_type, ...)
+                    else:
+                        field_definitions[prop_name] = (python_type, None)
+
+                dynamic_model = create_model(f"{full_name}_Args", **field_definitions)
+
+                try:
+                    tool_catalog.register_mcp_tool(
+                        full_name=full_name,
+                        description=tool.description,
+                        implementation=mcp_tool_impl,
+                        arg_model=dynamic_model,
+                        safety_level=ToolSafetyLevel.MODERATE,
+                    )
+                except ValueError as e:
+                    logger.warning(f"Could not register MCP tool '{full_name}': {e}")
+
         orchestrator = Orchestrator(
             state_manager=state_manager,
             llm_gateway=llm_gateway,
@@ -145,6 +209,9 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         app.state.tool_catalog = tool_catalog
         app.state.tool_rag = tool_rag
         app.state.tool_executor = tool_executor
+        app.state.mcp_connection_manager = mcp_connection_manager
+        app.state.mcp_schema_validator = mcp_schema_validator
+        app.state.mcp_interceptor = mcp_interceptor
         app.state.orchestrator = orchestrator
         app.state.workspace_ready = True
 
@@ -152,6 +219,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await mcp_connection_manager.disconnect_all()
             logger.info("Project Stu API shutting down.")
 
     app = FastAPI(
@@ -178,6 +246,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
     app.include_router(execution.router, prefix=config.server.api_prefix)
     app.include_router(tools.router, prefix=config.server.api_prefix)
     app.include_router(security.router, prefix=config.server.api_prefix)
+    app.include_router(mcp.router, prefix=config.server.api_prefix)
 
     @app.get(build_api_path(config.server.api_prefix, "health"), response_model=HealthStatus)
     async def health() -> HealthStatus:

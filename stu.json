@@ -120,11 +120,44 @@
       "vector_subdir": "tools"
     }
   },
-  "mcp": {
-    "enabled": false,
+    "mcp": {
+    "enabled": true,
     "connection_timeout_seconds": 30.0,
     "strict_schema_validation": true,
-    "allow_local_stdio": true
+    "allow_local_stdio": true,
+    "allowed_stdio_commands": ["python", "python3", "uvx", "npx"],
+    "servers": [
+      {
+        "name": "mock_server",
+        "transport": "mock",
+        "enabled": true,
+        "tools": [
+          {
+            "name": "echo",
+            "description": "Echoes back the input message",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "message": {"type": "string", "description": "The message to echo"}
+              },
+              "required": ["message"]
+            }
+          },
+          {
+            "name": "add",
+            "description": "Adds two numbers together",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "a": {"type": "number", "description": "First number"},
+                "b": {"type": "number", "description": "Second number"}
+              },
+              "required": ["a", "b"]
+            }
+          }
+        ]
+      }
+    ]
   },
   "daemons": {
     "telemetry": {

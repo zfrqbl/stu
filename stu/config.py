@@ -162,6 +162,48 @@ class McpConfig(StrictModel):
     strict_schema_validation: bool
     allow_local_stdio: bool
 
+class MCPToolConfig(StrictModel):
+    name: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    description: str
+    input_schema: dict = Field(default_factory=dict)
+
+
+class MCPServerConfig(StrictModel):
+    name: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    transport: str
+    enabled: bool = False
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: str | None = None
+    timeout_seconds: float | None = None
+    tools: list[MCPToolConfig] = Field(default_factory=list)
+
+    @field_validator("transport")
+    @classmethod
+    def validate_transport(cls, value: str) -> str:
+        allowed = {"mock", "stdio", "http"}
+        if value not in allowed:
+            raise ValueError(f"transport must be one of: {', '.join(sorted(allowed))}")
+        return value
+
+    @model_validator(mode="after")
+    def validate_server(self) -> "MCPServerConfig":
+        if self.transport == "stdio" and not self.command:
+            raise ValueError(f"MCP server '{self.name}' uses stdio transport but has no command")
+        if self.transport == "http" and not self.url:
+            raise ValueError(f"MCP server '{self.name}' uses http transport but has no url")
+        return self
+
+
+class McpConfig(StrictModel):
+    enabled: bool
+    connection_timeout_seconds: float = Field(..., gt=0)
+    strict_schema_validation: bool
+    allow_local_stdio: bool
+    allowed_stdio_commands: list[str] = Field(default_factory=list)
+    servers: list[MCPServerConfig] = Field(default_factory=list)
+
 
 class DaemonConfig(StrictModel):
     enabled: bool

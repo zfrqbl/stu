@@ -1,0 +1,78 @@
+.mcp-toolbar {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+
+.mcp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  padding: 20px;
+}
+
+.mcp-tools-section {
+  padding: 0 20px 20px;
+}
+
+.mcp-tool-item {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.mcp-tool-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.mcp-tool-name {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mcp-tool-desc {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 4px 0;
+}
+
+.mcp-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  background: var(--surface-3);
+}
+
+.mcp-status--connected {
+  color: var(--safe);
+  border-color: color-mix(in srgb, var(--safe) 35%, var(--border));
+}
+
+.mcp-status--disconnected {
+  color: var(--text-muted);
+}
+
+.mcp-status--error {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 35%, var(--border));
+}
+
+.mcp-schema-valid {
+  color: var(--safe);
+}
+
+.mcp-schema-invalid {
+  color: var(--warning);
+}
