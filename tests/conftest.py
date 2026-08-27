@@ -19,22 +19,15 @@ def client(tmp_path):
 
     config_data = json.loads(default_config_path.read_text(encoding="utf-8"))
 
-    # Isolate runtime data.
     config_data["workspace"]["root"] = str(workspace_dir)
-
-    # Keep static assets pointing to the real frontend files.
     config_data["server"]["static_dir"] = str(PROJECT_ROOT / "static")
-
-    # Use a short rate limit delay for fast tests.
     config_data["llm"]["rate_limit"]["min_interval_seconds"] = 0.01
 
-    # Force security enforcement in tests and add a test-only forbidden pattern.
     security = config_data.setdefault("security", {})
     security["enable_guardrails"] = True
     security["enable_skill_sanitizer"] = True
     security.setdefault("forbidden_argument_patterns", []).append("TEST_FORBIDDEN")
 
-    # Enable MCP with mock server for tests.
     mcp = config_data.setdefault("mcp", {})
     mcp["enabled"] = True
     mcp.setdefault("allowed_stdio_commands", ["python", "python3", "uvx", "npx"])
@@ -70,6 +63,11 @@ def client(tmp_path):
             ],
         }
     ])
+
+    daemons = config_data.setdefault("daemons", {})
+    daemons["telemetry"] = {"enabled": True, "interval_seconds": 0.1, "priority": "high"}
+    daemons["maintenance"] = {"enabled": True, "interval_seconds": 0.1, "priority": "high"}
+    daemons["reporting"] = {"enabled": False, "interval_seconds": 0.1, "priority": "low"}
 
     temp_config_path = tmp_path / "stu.json"
     temp_config_path.write_text(json.dumps(config_data, indent=2), encoding="utf-8")

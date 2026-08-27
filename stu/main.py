@@ -12,10 +12,14 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from .api import chat, execution, mcp, memory, projects, security, tools
+from .api import chat, execution, mcp, memory, projects, security, telemetry, tools
 from .chat.service import ChatService
 from .config import AppConfig, load_app_config, load_secrets
 from .constants import HealthStatusValue, ToolSafetyLevel
+from .daemons.manager import DaemonManager
+from .daemons.maintenance import MaintenanceDaemon
+from .daemons.reporting import ReportingDaemon
+from .daemons.telemetry import TelemetryDaemon, TelemetryWebSocketManager
 from .execution.orchestrator import Orchestrator
 from .execution.state_manager import StateManager
 from .llm.gateway import LLMGateway
@@ -122,7 +126,6 @@ def create_app(config_path: Path | None = None) -> FastAPI:
 
         tool_executor = ToolExecutor(tool_catalog, config.tools, guardrails=guardrails)
 
-        # MCP Protective Integration
         mcp_schema_validator = SchemaValidator(strict=config.mcp.strict_schema_validation)
         mcp_interceptor = SandboxInterceptor(guardrails=guardrails)
         mcp_connection_manager = ConnectionManager(
@@ -133,7 +136,6 @@ def create_app(config_path: Path | None = None) -> FastAPI:
 
         await mcp_connection_manager.connect_all()
 
-        # Register MCP tools into the catalog
         for connection in mcp_connection_manager.get_all_connections():
             if connection.status != "connected":
                 continue
@@ -193,6 +195,44 @@ def create_app(config_path: Path | None = None) -> FastAPI:
             workspace_root=manifest.root,
         )
 
+        # --- Daemons ---
+        daemon_manager = DaemonManager()
+        telemetry_ws_manager = telemetry.get_ws_manager()
+
+        telemetry_daemon = TelemetryDaemon(
+            interval_seconds=config.daemons.telemetry.interval_seconds,
+            enabled=config.daemons.telemetry.enabled,
+            ws_manager=telemetry_ws_manager,
+            state_manager=state_manager,
+            tool_catalog=tool_catalog,
+            mcp_connection_manager=mcp_connection_manager,
+            memory_service=memory_service,
+            daemon_manager=daemon_manager,
+        )
+
+        maintenance_daemon = MaintenanceDaemon(
+            interval_seconds=config.daemons.maintenance.interval_seconds,
+            enabled=config.daemons.maintenance.enabled,
+            workspace_root=manifest.root,
+            projects_dir=manifest.projects,
+            tmp_dir=manifest.tmp,
+        )
+
+        reporting_daemon = ReportingDaemon(
+            interval_seconds=config.daemons.reporting.interval_seconds,
+            enabled=config.daemons.reporting.enabled,
+            state_manager=state_manager,
+            memory_service=memory_service,
+            llm_gateway=llm_gateway,
+            project_id=config.app.default_project_id,
+        )
+
+        daemon_manager.register(telemetry_daemon)
+        daemon_manager.register(maintenance_daemon)
+        daemon_manager.register(reporting_daemon)
+
+        await daemon_manager.start_all()
+
         app.state.config = config
         app.state.secrets = secrets
         app.state.workspace = manifest
@@ -213,12 +253,14 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         app.state.mcp_schema_validator = mcp_schema_validator
         app.state.mcp_interceptor = mcp_interceptor
         app.state.orchestrator = orchestrator
+        app.state.daemon_manager = daemon_manager
         app.state.workspace_ready = True
 
         logger.info("Project Stu API startup complete.")
         try:
             yield
         finally:
+            await daemon_manager.stop_all()
             await mcp_connection_manager.disconnect_all()
             logger.info("Project Stu API shutting down.")
 
@@ -247,6 +289,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
     app.include_router(tools.router, prefix=config.server.api_prefix)
     app.include_router(security.router, prefix=config.server.api_prefix)
     app.include_router(mcp.router, prefix=config.server.api_prefix)
+    app.include_router(telemetry.router, prefix=config.server.api_prefix)
 
     @app.get(build_api_path(config.server.api_prefix, "health"), response_model=HealthStatus)
     async def health() -> HealthStatus:

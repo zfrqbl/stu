@@ -120,7 +120,7 @@
       "vector_subdir": "tools"
     }
   },
-    "mcp": {
+  "mcp": {
     "enabled": true,
     "connection_timeout_seconds": 30.0,
     "strict_schema_validation": true,
@@ -161,22 +161,22 @@
   },
   "daemons": {
     "telemetry": {
-      "enabled": false,
-      "interval_seconds": 5.0,
+      "enabled": true,
+      "interval_seconds": 3.0,
       "priority": "high"
     },
     "maintenance": {
-      "enabled": false,
+      "enabled": true,
       "interval_seconds": 900.0,
       "priority": "high"
     },
     "reporting": {
-      "enabled": false,
+      "enabled": true,
       "interval_seconds": 3600.0,
       "priority": "low"
     }
   },
-    "security": {
+  "security": {
     "enable_guardrails": true,
     "enable_skill_sanitizer": true,
     "egress_allowlist": [],

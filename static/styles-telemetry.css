@@ -1,0 +1,99 @@
+.telemetry-live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.telemetry-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--safe);
+  animation: pulse-dot 2s infinite;
+}
+
+.telemetry-live-dot.disconnected {
+  background: var(--error);
+  animation: none;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.telemetry-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  padding: 20px;
+}
+
+.telemetry-status-card {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.telemetry-status-card h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.telemetry-status-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.telemetry-status-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.daemon-status-list {
+  padding: 0 20px 20px;
+}
+
+.daemon-status-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  background: var(--surface-2);
+}
+
+.daemon-status-item .name {
+  font-weight: 600;
+}
+
+.daemon-status-item .status {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.daemon-status-item .status.running {
+  color: var(--safe);
+  background: color-mix(in srgb, var(--safe) 12%, transparent);
+}
+
+.daemon-status-item .status.stopped {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+}
+
+.daemon-status-item .status.error {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
