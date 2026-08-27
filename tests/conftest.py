@@ -28,6 +28,12 @@ def client(tmp_path):
     # Use a short rate limit delay for fast tests.
     config_data["llm"]["rate_limit"]["min_interval_seconds"] = 0.01
 
+    # Force security enforcement in tests and add a test-only forbidden pattern.
+    security = config_data.setdefault("security", {})
+    security["enable_guardrails"] = True
+    security["enable_skill_sanitizer"] = True
+    security.setdefault("forbidden_argument_patterns", []).append("TEST_FORBIDDEN")
+
     temp_config_path = tmp_path / "stu.json"
     temp_config_path.write_text(json.dumps(config_data, indent=2), encoding="utf-8")
 

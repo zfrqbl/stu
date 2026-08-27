@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from pydantic import (
@@ -174,11 +175,41 @@ class DaemonsConfig(StrictModel):
     reporting: DaemonConfig
 
 
+class GuardrailPolicyConfig(StrictModel):
+    fail_loop_on_deny: bool
+    block_on_review: bool
+    record_allow_events: bool
+
+
 class SecurityConfig(StrictModel):
     enable_guardrails: bool
     enable_skill_sanitizer: bool
     egress_allowlist: list[str]
     forbidden_path_patterns: list[str]
+    path_traversal_patterns: list[str]
+    forbidden_argument_patterns: list[str]
+    shell_command_patterns: list[str]
+    secret_patterns: list[str]
+    max_argument_bytes: int = Field(..., ge=0)
+    max_output_scan_bytes: int = Field(..., ge=0)
+    event_retention: int = Field(..., ge=1)
+    policy: GuardrailPolicyConfig
+
+    @field_validator(
+        "forbidden_path_patterns",
+        "path_traversal_patterns",
+        "forbidden_argument_patterns",
+        "shell_command_patterns",
+        "secret_patterns",
+    )
+    @classmethod
+    def validate_regex_list(cls, value: list[str]) -> list[str]:
+        for pattern in value:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"Invalid regex pattern: {pattern}") from exc
+        return value
 
 
 class UiConfig(StrictModel):

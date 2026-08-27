@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from .api import chat, execution, memory, projects, tools
+from .api import chat, execution, memory, projects, security, tools
 from .chat.service import ChatService
 from .config import AppConfig, load_app_config, load_secrets
 from .constants import HealthStatusValue
@@ -24,6 +24,10 @@ from .logging import setup_logging
 from .memory.service import MemoryService
 from .models import HealthStatus, PublicAppInfo, PublicConfig, PublicRateLimit, PublicUiConfig
 from .projects.service import ProjectService
+from .security.egress import EgressGuard
+from .security.events import SecurityEventStore
+from .security.guardrails import GuardrailOrchestrator
+from .security.sanitizer import SkillSanitizer
 from .tools.catalog import ToolCatalog
 from .tools.executor import ToolExecutor
 from .tools.rag import ToolRagService
@@ -94,6 +98,16 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         if recovered_state:
             logger.info(f"Crash recovery found resumable loop: {recovered_state.loop_id}")
 
+        security_event_store = SecurityEventStore(config.security.event_retention)
+        sanitizer = SkillSanitizer(config.security)
+        egress_guard = EgressGuard(config.security, config.tools)
+        guardrails = GuardrailOrchestrator(
+            config=config.security,
+            sanitizer=sanitizer,
+            egress=egress_guard,
+            event_store=security_event_store,
+        )
+
         tool_catalog = ToolCatalog(config.tools)
         tool_rag = ToolRagService(
             catalog=tool_catalog,
@@ -103,7 +117,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         )
         tool_rag.prepare()
 
-        tool_executor = ToolExecutor(tool_catalog, config.tools)
+        tool_executor = ToolExecutor(tool_catalog, config.tools, guardrails=guardrails)
 
         orchestrator = Orchestrator(
             state_manager=state_manager,
@@ -124,6 +138,10 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         app.state.memory_service = memory_service
         app.state.chat_service = chat_service
         app.state.state_manager = state_manager
+        app.state.security_event_store = security_event_store
+        app.state.sanitizer = sanitizer
+        app.state.egress_guard = egress_guard
+        app.state.guardrails = guardrails
         app.state.tool_catalog = tool_catalog
         app.state.tool_rag = tool_rag
         app.state.tool_executor = tool_executor
@@ -159,6 +177,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
     app.include_router(chat.router, prefix=config.server.api_prefix)
     app.include_router(execution.router, prefix=config.server.api_prefix)
     app.include_router(tools.router, prefix=config.server.api_prefix)
+    app.include_router(security.router, prefix=config.server.api_prefix)
 
     @app.get(build_api_path(config.server.api_prefix, "health"), response_model=HealthStatus)
     async def health() -> HealthStatus:

@@ -143,15 +143,44 @@
       "priority": "low"
     }
   },
-  "security": {
-    "enable_guardrails": false,
-    "enable_skill_sanitizer": false,
+    "security": {
+    "enable_guardrails": true,
+    "enable_skill_sanitizer": true,
     "egress_allowlist": [],
     "forbidden_path_patterns": [
-      "**/.env",
-      "**/.ssh/**",
-      "**/.aws/**"
-    ]
+      "\\.env",
+      "\\.ssh",
+      "\\.aws",
+      "/etc/",
+      "~/"
+    ],
+    "path_traversal_patterns": [
+      "\\.\\./",
+      "\\.\\.\\\\",
+      "~/",
+      "/etc/"
+    ],
+    "forbidden_argument_patterns": [],
+    "shell_command_patterns": [
+      ";\\s*rm\\b",
+      "&&\\s*rm\\b",
+      "\\brm\\s+-rf\\b",
+      "\\bcurl\\b",
+      "\\bwget\\b"
+    ],
+    "secret_patterns": [
+      "(?i)api[_-]?key\\s*[:=]",
+      "(?i)secret\\s*[:=]",
+      "sk-[A-Za-z0-9]{16,}"
+    ],
+    "max_argument_bytes": 200000,
+    "max_output_scan_bytes": 200000,
+    "event_retention": 500,
+    "policy": {
+      "fail_loop_on_deny": true,
+      "block_on_review": false,
+      "record_allow_events": false
+    }
   },
   "ui": {
     "default_active_view": "chat",

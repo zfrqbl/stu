@@ -1,4 +1,4 @@
-"""Tool Executor with timeout, validation, and output limits."""
+"""Tool Executor with timeout, validation, guardrails, and output limits."""
 
 from __future__ import annotations
 
@@ -9,16 +9,23 @@ import time
 from pydantic import ValidationError
 
 from ..config import ToolsConfig
-from ..constants import ToolExecutionStatus
+from ..constants import SecurityDecision, ToolExecutionStatus
 from ..models import ToolInvokeResponse
+from ..security.guardrails import GuardrailOrchestrator
 from .catalog import ToolCatalog
 from .context import ToolContext
 
 
 class ToolExecutor:
-    def __init__(self, catalog: ToolCatalog, config: ToolsConfig):
+    def __init__(
+        self,
+        catalog: ToolCatalog,
+        config: ToolsConfig,
+        guardrails: GuardrailOrchestrator | None = None,
+    ):
         self.catalog = catalog
         self.config = config
+        self.guardrails = guardrails
 
     async def invoke(
         self,
@@ -44,6 +51,16 @@ class ToolExecutor:
                 start,
                 error="Tool not found or disabled.",
             )
+
+        if self.guardrails:
+            pre_check = self.guardrails.pre_tool(tool_name, arguments, context.project_id)
+            if pre_check.decision == SecurityDecision.DENY:
+                return self._response(
+                    tool_name,
+                    ToolExecutionStatus.BLOCKED,
+                    start,
+                    error=pre_check.reason or "Blocked by security guardrails.",
+                )
 
         impl = self.catalog.get_implementation(tool_name)
         arg_model = self.catalog.get_arg_model(tool_name)
@@ -85,6 +102,16 @@ class ToolExecutor:
                 start,
                 error=str(exc),
             )
+
+        if self.guardrails:
+            post_check = self.guardrails.post_tool(tool_name, raw_output, context.project_id)
+            if post_check.decision == SecurityDecision.DENY:
+                return self._response(
+                    tool_name,
+                    ToolExecutionStatus.BLOCKED,
+                    start,
+                    error=post_check.reason or "Blocked by post-tool security guardrails.",
+                )
 
         output = self._truncate(raw_output)
 

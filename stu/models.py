@@ -32,6 +32,21 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class SecuritySeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class SecuritySource(str, Enum):
+    GUARDRAIL = "guardrail"
+    SANITIZER = "sanitizer"
+    EGRESS = "egress"
+    TOOL = "tool"
+    EXECUTION = "execution"
+
+
 class Project(BaseModel):
     id: str
     name: str
@@ -153,11 +168,32 @@ class TelemetryEvent(BaseModel):
 
 class SecurityEvent(BaseModel):
     id: UUID = Field(default_factory=uuid4)
+    timestamp: datetime = Field(default_factory=utc_now)
+    project_id: str | None = None
+    source: str
+    decision: SecurityDecision
+    severity: SecuritySeverity = SecuritySeverity.MEDIUM
+    reason: str = ""
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class SecurityCheckResult(BaseModel):
     decision: SecurityDecision
     source: str
-    reason: str
-    timestamp: datetime = Field(default_factory=utc_now)
+    severity: SecuritySeverity = SecuritySeverity.MEDIUM
+    reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SecurityStatusResponse(BaseModel):
+    guardrails_enabled: bool
+    sanitizer_enabled: bool
+    network_enabled: bool
+    egress_allowlist: list[str]
+    event_retention: int
+    total_events: int
+    deny_count: int
+    review_count: int
 
 
 class WorkspaceManifest(BaseModel):
